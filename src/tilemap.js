@@ -30,6 +30,9 @@ export const SWITCH_COLORS = {
  *   X Y Z   obstacle columns that start RAISED    — red, cyan, pink
  *   x y z   obstacle columns that start RETRACTED — red, cyan, pink
  *
+ *   | -     enemy patrolling vertically / horizontally (reverses when blocked)
+ *   ) (     enemy turning clockwise / anticlockwise when blocked
+ *
  * Obstacles belong to group A (uppercase) or group B (lowercase). Stepping on
  * a switch swaps which group is raised, so one press both opens and closes.
  */
@@ -55,6 +58,12 @@ const LEGEND = {
   x: { type: 'obstacle', color: 'red', group: 'B' },
   y: { type: 'obstacle', color: 'cyan', group: 'B' },
   z: { type: 'obstacle', color: 'pink', group: 'B' },
+  // Enemy spawns. The tile itself is ordinary floor; the pattern says which way
+  // the enemy turns when something blocks its path.
+  '|': { type: 'floor', enemy: 'vertical' },
+  '-': { type: 'floor', enemy: 'horizontal' },
+  ')': { type: 'floor', enemy: 'clockwise' },
+  '(': { type: 'floor', enemy: 'counterclockwise' },
 };
 
 // The level. Nine rooms on a 16x16 grid, chained so every mechanic sits on the
@@ -67,12 +76,12 @@ const MAP = [
   '#..g.#.O..#...##',
   '#....#x..3#1.z.#',
   '##.#############',
-  '#2...#....#....#',
+  '#2.|.#....#....#',
   '#....#~~~~.....#',
-  '#....#~~~~#....#',
+  '#....#~~~~#-...#',
   '#...v#....#....#',
   '##.####Y####W###',
-  '#..y.#....#....#',
+  '#..y.#)...#(...#',
   '#....V....#....#',
   '#....#....#..*.#',
   '#....#....#....#',
@@ -110,6 +119,7 @@ export class TileMap {
 
   _parse() {
     this.tiles = [];
+    this.enemySpawns = [];
     for (let z = 0; z < this.rows; z++) {
       const row = [];
       for (let x = 0; x < this.cols; x++) {
@@ -117,6 +127,7 @@ export class TileMap {
         const def = LEGEND[char];
         if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
         if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
+        if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
         row.push({ ...def, gx: x, gz: z });
       }
       this.tiles.push(row);
@@ -137,11 +148,17 @@ export class TileMap {
     );
   }
 
-  /** Terrain-only walkability, ignoring anything the player is carrying. */
+  /**
+   * Terrain-only walkability: what an enemy can cross. Walls, water and doors
+   * always block — doors whether open or shut, so a patrol stays in its room —
+   * while columns block only while they are raised.
+   */
   isWalkable(gx, gz) {
     const t = this.get(gx, gz);
     if (!t) return false;
-    return t.type !== 'wall' && t.type !== 'water' && t.type !== 'door' && t.type !== 'obstacle';
+    if (t.type === 'wall' || t.type === 'water' || t.type === 'door') return false;
+    if (t.type === 'obstacle') return !this.isRaised(t);
+    return true;
   }
 
   findSpawn() {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TileMap } from './tilemap.js';
 import { Player } from './player.js';
+import { Enemies } from './enemy.js';
 import { Inventory } from './inventory.js';
 import { setupHud } from './hud.js';
 import { setupInput } from './input.js';
@@ -53,6 +54,9 @@ const inventory = new Inventory();
 const player = new Player(tilemap, inventory);
 scene.add(player.mesh);
 
+const enemies = new Enemies(tilemap);
+scene.add(enemies.group);
+
 const cameraFollow = new CameraFollow(camera, player.mesh);
 setupHud(inventory);
 setupInput(player);
@@ -62,17 +66,32 @@ detectTouch();
 // The controls hint has done its job once the player starts moving.
 player.onFirstMove = () => document.body.classList.add('has-moved');
 
-// --- Win overlay ------------------------------------------------------------
+// --- Overlays ---------------------------------------------------------------
 const winOverlay = document.getElementById('win');
+const gameOverOverlay = document.getElementById('gameover');
 
 tilemap.onWin = () => winOverlay?.classList.add('is-shown');
 
-document.getElementById('play-again')?.addEventListener('click', () => {
+// --- Enemies take their turn whenever the player takes one -------------------
+player.onStep = (from) => {
+  enemies.step();
+  if (enemies.hits(player, from)) {
+    inventory.setDead(true);
+    gameOverOverlay?.classList.add('is-shown');
+  }
+};
+
+function restart() {
   winOverlay?.classList.remove('is-shown');
+  gameOverOverlay?.classList.remove('is-shown');
   tilemap.reset();
   inventory.reset();
   player.reset();
-});
+  enemies.reset();
+}
+
+document.getElementById('play-again')?.addEventListener('click', restart);
+document.getElementById('try-again')?.addEventListener('click', restart);
 
 // --- Resize handling --------------------------------------------------------
 window.addEventListener('resize', () => {
@@ -88,6 +107,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   tilemap.update(dt);
   player.update(dt);
+  enemies.update(dt);
   cameraFollow.update(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
