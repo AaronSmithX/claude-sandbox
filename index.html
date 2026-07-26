@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>Tile Runner — 3D Browser Game</title>
     <link
       rel="icon"
@@ -21,13 +24,19 @@
       body {
         width: 100%;
         height: 100%;
+        height: 100dvh;
         overflow: hidden;
         background: #0b1020;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        /* No scrolling, pinch-zoom or pull-to-refresh stealing our touches. */
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
       }
       #app {
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         display: block;
       }
       canvas {
@@ -44,6 +53,7 @@
         font-size: 14px;
         line-height: 1.5;
         letter-spacing: 0.2px;
+        max-width: min(420px, calc(100vw - 32px));
         backdrop-filter: blur(6px);
         border: 1px solid rgba(120, 150, 220, 0.25);
         user-select: none;
@@ -52,12 +62,138 @@
       #hint b {
         color: #8fb4ff;
       }
+      /* The keyboard hint sits bottom-left, which is where the D-pad lands on a
+         narrow screen — move it out of the way once touch mode is on. */
+      body.touch-mode #hint {
+        top: calc(16px + env(safe-area-inset-top));
+        bottom: auto;
+      }
+      body.touch-mode .keyboard-hint,
+      body:not(.touch-mode) .touch-hint {
+        display: none;
+      }
+
+      /* --- On-screen D-pad ---------------------------------------------- */
+      #touch-controls {
+        --btn: 68px;
+        position: fixed;
+        left: 50%;
+        bottom: calc(20px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        display: none;
+        grid-template-columns: repeat(3, var(--btn));
+        grid-template-rows: repeat(3, var(--btn));
+        gap: 8px;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      body.touch-mode #touch-controls {
+        display: grid;
+      }
+      .dpad-btn {
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border-radius: 16px;
+        border: 1px solid rgba(120, 150, 220, 0.35);
+        background: rgba(10, 16, 32, 0.6);
+        backdrop-filter: blur(6px);
+        color: #dfe7ff;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+        cursor: pointer;
+        transition:
+          background 90ms ease,
+          transform 90ms ease;
+      }
+      .dpad-btn svg {
+        width: 40%;
+        height: 40%;
+        fill: currentColor;
+      }
+      .dpad-btn.is-pressed {
+        background: rgba(143, 180, 255, 0.4);
+        transform: scale(0.94);
+      }
+      .dpad-btn[data-move='up'] {
+        grid-area: 1 / 2;
+      }
+      .dpad-btn[data-move='left'] {
+        grid-area: 2 / 1;
+      }
+      .dpad-btn[data-move='left'] svg {
+        transform: rotate(-90deg);
+      }
+      .dpad-btn[data-move='right'] {
+        grid-area: 2 / 3;
+      }
+      .dpad-btn[data-move='right'] svg {
+        transform: rotate(90deg);
+      }
+      .dpad-btn[data-move='down'] {
+        grid-area: 3 / 2;
+      }
+      .dpad-btn[data-move='down'] svg {
+        transform: rotate(180deg);
+      }
+      /* Landscape phones are short: tuck the pad into the bottom-right corner
+         so it sits under a thumb instead of covering the middle of the map. */
+      @media (orientation: landscape) and (max-height: 520px) {
+        #touch-controls {
+          --btn: 58px;
+          left: auto;
+          right: calc(20px + env(safe-area-inset-right));
+          transform: none;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <div id="hint">
-      Move with <b>WASD</b> or <b>arrow keys</b> — one tile at a time.
+      <span class="keyboard-hint">
+        Move with <b>WASD</b> or <b>arrow keys</b> — one tile at a time.
+      </span>
+      <span class="touch-hint">Tap or hold the <b>arrows</b> to move.</span>
+    </div>
+
+    <div id="touch-controls" aria-hidden="true">
+      <button class="dpad-btn" data-move="up" type="button" aria-label="Move up">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5.5 20 18.5H4z" />
+        </svg>
+      </button>
+      <button
+        class="dpad-btn"
+        data-move="left"
+        type="button"
+        aria-label="Move left"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5.5 20 18.5H4z" />
+        </svg>
+      </button>
+      <button
+        class="dpad-btn"
+        data-move="right"
+        type="button"
+        aria-label="Move right"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5.5 20 18.5H4z" />
+        </svg>
+      </button>
+      <button
+        class="dpad-btn"
+        data-move="down"
+        type="button"
+        aria-label="Move down"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5.5 20 18.5H4z" />
+        </svg>
+      </button>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
