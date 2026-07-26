@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TileMap } from './tilemap.js';
 import { Player } from './player.js';
 import { setupInput } from './input.js';
+import { setupTouchControls, detectTouch } from './touch-controls.js';
 import { CameraFollow } from './camera-follow.js';
 
 const app = document.getElementById('app');
@@ -51,6 +52,8 @@ scene.add(player.mesh);
 
 const cameraFollow = new CameraFollow(camera, player.mesh);
 setupInput(player);
+setupTouchControls(player);
+detectTouch();
 
 // --- Resize handling --------------------------------------------------------
 window.addEventListener('resize', () => {

@@ -10,6 +10,8 @@ and deployed for free to GitHub Pages via GitHub Actions.
 ## Controls
 
 - **WASD** or **arrow keys** — move one tile at a time.
+- **On touch devices**, an on-screen D-pad appears at the bottom of the screen.
+  Tap an arrow for a single tile, or hold it to keep walking.
 - Walls (grey) and water (blue) block movement; you roam the green floor tiles.
 
 ## Local development
@@ -48,11 +50,12 @@ site and publishes `dist/` to GitHub Pages.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Page shell, full-screen canvas, controls hint. |
+| `index.html` | Page shell, full-screen canvas, controls hint, D-pad markup/styles. |
 | `src/main.js` | Renderer, scene, camera, lights, and the render loop. |
 | `src/tilemap.js` | The map grid, tile meshes, and walkability helpers. |
 | `src/player.js` | The player cube and tile-to-tile movement. |
 | `src/input.js` | Keyboard → grid-move mapping. |
+| `src/touch-controls.js` | On-screen D-pad for touch devices. |
 | `src/camera-follow.js` | Overhead camera that follows the player. |
 | `vite.config.js` | Sets the `/claude-sandbox/` base path for Pages. |
 
