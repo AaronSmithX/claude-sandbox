@@ -15,6 +15,9 @@ export class Player {
 
     // Fired the first time a move actually starts, so the UI can drop the hint.
     this.onFirstMove = null;
+    // Fired with ({gx,gz} from, {gx,gz} to) once a move is committed, which is
+    // what drives the enemies' turn.
+    this.onStep = null;
     this._hasMoved = false;
 
     const spawn = tilemap.findSpawn();
@@ -77,7 +80,7 @@ export class Player {
 
   /** Attempt to move by one tile in grid space. Ignored mid-move or if blocked. */
   tryMove(dx, dz) {
-    if (this._moving || this.inventory.won) return;
+    if (this._moving || this.inventory.won || this.inventory.dead) return;
 
     const nx = this.gx + dx;
     const nz = this.gz + dz;
@@ -86,6 +89,7 @@ export class Player {
     // Doors open on the way in, spending the matching key.
     this.tilemap.openDoor(nx, nz, this.inventory);
 
+    const from = { gx: this.gx, gz: this.gz };
     this.gx = nx;
     this.gz = nz;
 
@@ -99,6 +103,9 @@ export class Player {
       this._hasMoved = true;
       this.onFirstMove?.();
     }
+
+    // Enemies move in lockstep with the player, so their turn is taken here.
+    this.onStep?.(from, { gx: nx, gz: nz });
   }
 
   update(dt) {

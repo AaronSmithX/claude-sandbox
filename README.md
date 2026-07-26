@@ -2,10 +2,10 @@
 
 A small [Three.js](https://threejs.org/) puzzle game where you move a cube
 around a tile map built entirely from basic 3D shapes. Collect keys, open the
-doors they match, flip switches to raise and lower columns, and find the star.
-Grid-based movement with an angled overhead camera. Built with
-[Vite](https://vitejs.dev/) and deployed for free to GitHub Pages via GitHub
-Actions.
+doors they match, flip switches to raise and lower columns, dodge the patrolling
+spiked shells, and find the star. Grid-based movement with an angled overhead
+camera. Built with [Vite](https://vitejs.dev/) and deployed for free to GitHub
+Pages via GitHub Actions.
 
 **Play it live:** https://aaronsmithx.github.io/claude-sandbox/
 
@@ -28,9 +28,29 @@ each icon lights up once you pick that item up.
 | **Switches** (red, cyan, pink) | Stepping on one *swaps* that colour's columns: every raised column of that colour drops, and every retracted one pops up. |
 | **Columns** | Four posts that rise out of a tile. Raised columns block you; retracted ones don't. |
 | **Star** | Reaching it wins the level. |
+| **Enemies** | A spiked shell that patrols a fixed route. Touching one ends the run. |
 
 Walls (grey) always block movement; you roam the green floor tiles. Every
 mechanic is required — the level cannot be finished while skipping any of them.
+
+### Enemies
+
+Enemies move **in lockstep with you**: each step you take, every enemy takes
+one. They never move while you stand still, so the level is a puzzle rather than
+a reaction test. Doors always stop them, open or shut, so each one stays in its
+own room.
+
+A movement pattern is simply *which way the enemy turns when something blocks
+its path*:
+
+| Pattern | Turns |
+| --- | --- |
+| vertical | reverses — bounces up and down a column |
+| horizontal | reverses — bounces left and right along a row |
+| clockwise | 90 degrees clockwise, so it walks a room's perimeter |
+| counterclockwise | 90 degrees the other way |
+
+Turning and moving happen in the same step, so a blocked enemy never stalls.
 
 ## Local development
 
@@ -68,10 +88,11 @@ site and publishes `dist/` to GitHub Pages.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Page shell, canvas, hint, HUD, D-pad and win overlay markup/styles. |
+| `index.html` | Page shell, canvas, hint, HUD, D-pad and overlay markup/styles. |
 | `src/main.js` | Renderer, scene, camera, lights, wiring, and the render loop. |
 | `src/tilemap.js` | The map, tile meshes, and all the level rules. |
 | `src/player.js` | The player cube and tile-to-tile movement. |
+| `src/enemy.js` | Patrolling enemies, their shapes and turn rules. |
 | `src/inventory.js` | What the player is carrying. |
 | `src/hud.js` | The inventory bar at the top of the screen. |
 | `src/input.js` | Keyboard → grid-move mapping. |
@@ -94,6 +115,9 @@ site and publishes `dist/` to GitHub Pages.
   1 2 3   switches — red, cyan, pink
   X Y Z   columns that start RAISED    — red, cyan, pink
   x y z   columns that start RETRACTED — red, cyan, pink
+
+  | -     enemy patrolling vertically / horizontally
+  ) (     enemy turning clockwise / counterclockwise when blocked
   ```
 
   Uppercase is the thing that blocks you, lowercase its unblocked partner. A

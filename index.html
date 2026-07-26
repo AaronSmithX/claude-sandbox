@@ -45,7 +45,7 @@
       /* Shared glass-panel look for every overlay. */
       #hint,
       #hud,
-      #win .win-panel {
+      .overlay-panel {
         background: rgba(10, 16, 32, 0.6);
         border: 1px solid rgba(120, 150, 220, 0.25);
         backdrop-filter: blur(6px);
@@ -123,8 +123,8 @@
         display: none;
       }
 
-      /* --- Win overlay ---------------------------------------------------- */
-      #win {
+      /* --- Win / game-over overlays --------------------------------------- */
+      .overlay {
         position: fixed;
         inset: 0;
         display: none;
@@ -133,26 +133,26 @@
         background: rgba(6, 10, 22, 0.72);
         z-index: 10;
       }
-      #win.is-shown {
+      .overlay.is-shown {
         display: grid;
       }
-      #win .win-panel {
+      .overlay-panel {
         padding: 28px 32px;
         border-radius: 18px;
         text-align: center;
         max-width: 320px;
       }
-      #win h1 {
+      .overlay h1 {
         font-size: 22px;
         margin-bottom: 8px;
       }
-      #win p {
+      .overlay p {
         font-size: 14px;
         line-height: 1.5;
         color: #aab8dd;
         margin-bottom: 20px;
       }
-      #play-again {
+      .overlay button {
         font: inherit;
         font-size: 15px;
         font-weight: 600;
@@ -165,8 +165,12 @@
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
       }
-      #play-again:active {
+      .overlay button:active {
         transform: scale(0.97);
+      }
+      /* Game over gets a warmer button so the two overlays read differently. */
+      #try-again {
+        background: #ff9d7a;
       }
       body.touch-mode .keyboard-hint,
       body:not(.touch-mode) .touch-hint {
@@ -298,11 +302,19 @@
         </svg>
       </button>
     </div>
-    <div id="win">
-      <div class="win-panel">
+    <div id="win" class="overlay">
+      <div class="overlay-panel">
         <h1>You found the star!</h1>
         <p>Keys turned, columns dropped, water crossed. Level complete.</p>
         <button id="play-again" type="button">Play again</button>
+      </div>
+    </div>
+
+    <div id="gameover" class="overlay">
+      <div class="overlay-panel">
+        <h1>Game over</h1>
+        <p>One of the spiked shells got you. The level resets from the start.</p>
+        <button id="try-again" type="button">Try again</button>
       </div>
     </div>
 

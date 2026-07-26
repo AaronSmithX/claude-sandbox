@@ -12,6 +12,7 @@ export class Inventory {
     this.keys = { gold: 0, violet: 0, white: 0 };
     this.hasTube = false;
     this.won = false;
+    this.dead = false;
     this._changed();
   }
 
@@ -39,6 +40,11 @@ export class Inventory {
 
   setWon(value) {
     this.won = value;
+    this._changed();
+  }
+
+  setDead(value) {
+    this.dead = value;
     this._changed();
   }
 
