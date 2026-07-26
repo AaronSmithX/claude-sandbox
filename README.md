@@ -30,15 +30,19 @@ npm run preview   # serve the built files locally
 
 ## Deployment
 
-Every push to `main` or the game branch triggers
+Every push to `main` (and manual "Run workflow" runs) triggers
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which builds the
 site and publishes `dist/` to GitHub Pages.
 
 > [!IMPORTANT]
-> One-time setup: in the repository's **Settings → Pages → Build and deployment**,
-> set **Source** to **GitHub Actions**. Without this, the deploy workflow has
-> nowhere to publish. After the first successful run the game is live at the URL
-> above.
+> One-time setup in the repository settings:
+> 1. **Settings → General → Default branch** → set to **`main`**.
+> 2. **Settings → Pages → Build and deployment → Source** → select
+>    **GitHub Actions**. Without this, the deploy job fails with a 404
+>    (`Ensure GitHub Pages has been enabled`).
+>
+> After both are set, push to `main` (or run the workflow manually) and the game
+> goes live at the URL above.
 
 ## Project layout
 
