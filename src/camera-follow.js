@@ -8,7 +8,9 @@ export class CameraFollow {
   constructor(camera, target) {
     this.camera = camera;
     this.target = target; // an Object3D whose .position we track
-    this.offset = new THREE.Vector3(0, 9, 7); // above and behind
+    // Above and behind. Pulled back from the original 9/7 to suit the larger
+    // 16x16 level, so a whole room and its exits fit on screen at once.
+    this.offset = new THREE.Vector3(0, 11, 8.5);
     this._look = new THREE.Vector3();
 
     // Snap into place on creation.

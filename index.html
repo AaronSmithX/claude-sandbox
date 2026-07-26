@@ -42,31 +42,131 @@
       canvas {
         display: block;
       }
+      /* Shared glass-panel look for every overlay. */
+      #hint,
+      #hud,
+      #win .win-panel {
+        background: rgba(10, 16, 32, 0.6);
+        border: 1px solid rgba(120, 150, 220, 0.25);
+        backdrop-filter: blur(6px);
+        color: #dfe7ff;
+      }
       #hint {
         position: fixed;
         left: 16px;
         bottom: 16px;
         padding: 10px 14px;
         border-radius: 10px;
-        background: rgba(10, 16, 32, 0.6);
-        color: #dfe7ff;
         font-size: 14px;
         line-height: 1.5;
         letter-spacing: 0.2px;
         max-width: min(420px, calc(100vw - 32px));
-        backdrop-filter: blur(6px);
-        border: 1px solid rgba(120, 150, 220, 0.25);
         user-select: none;
         pointer-events: none;
+        transition: opacity 500ms ease;
       }
       #hint b {
         color: #8fb4ff;
       }
       /* The keyboard hint sits bottom-left, which is where the D-pad lands on a
-         narrow screen — move it out of the way once touch mode is on. */
+         narrow screen — tuck it under the HUD once touch mode is on. */
       body.touch-mode #hint {
-        top: calc(16px + env(safe-area-inset-top));
+        top: calc(74px + env(safe-area-inset-top));
         bottom: auto;
+      }
+      /* Once you're moving, you don't need to be told how to move. */
+      body.has-moved #hint {
+        opacity: 0;
+      }
+
+      /* --- Inventory HUD -------------------------------------------------- */
+      #hud {
+        position: fixed;
+        top: calc(14px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 14px;
+        pointer-events: none;
+        user-select: none;
+      }
+      .hud-chip {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 6px;
+        border-radius: 9px;
+        background: rgba(255, 255, 255, 0.04);
+        opacity: 0.25;
+        filter: grayscale(1);
+        transition:
+          opacity 220ms ease,
+          filter 220ms ease;
+      }
+      .hud-chip.is-held {
+        opacity: 1;
+        filter: none;
+      }
+      .hud-chip svg {
+        width: 22px;
+        height: 22px;
+        display: block;
+      }
+      .chip-count {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+      }
+      .chip-count:empty {
+        display: none;
+      }
+
+      /* --- Win overlay ---------------------------------------------------- */
+      #win {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        padding: 24px;
+        background: rgba(6, 10, 22, 0.72);
+        z-index: 10;
+      }
+      #win.is-shown {
+        display: grid;
+      }
+      #win .win-panel {
+        padding: 28px 32px;
+        border-radius: 18px;
+        text-align: center;
+        max-width: 320px;
+      }
+      #win h1 {
+        font-size: 22px;
+        margin-bottom: 8px;
+      }
+      #win p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: #aab8dd;
+        margin-bottom: 20px;
+      }
+      #play-again {
+        font: inherit;
+        font-size: 15px;
+        font-weight: 600;
+        color: #0b1020;
+        background: #8fb4ff;
+        border: 0;
+        border-radius: 11px;
+        padding: 12px 26px;
+        min-height: 44px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #play-again:active {
+        transform: scale(0.97);
       }
       body.touch-mode .keyboard-hint,
       body:not(.touch-mode) .touch-hint {
@@ -151,6 +251,9 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <div id="hud" aria-label="Inventory"></div>
+
     <div id="hint">
       <span class="keyboard-hint">
         Move with <b>WASD</b> or <b>arrow keys</b> — one tile at a time.
@@ -195,6 +298,14 @@
         </svg>
       </button>
     </div>
+    <div id="win">
+      <div class="win-panel">
+        <h1>You found the star!</h1>
+        <p>Keys turned, columns dropped, water crossed. Level complete.</p>
+        <button id="play-again" type="button">Play again</button>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
