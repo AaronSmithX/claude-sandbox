@@ -37,7 +37,7 @@ const DEFAULT_ENVELOPE = [0.01, 0.08, 0.5, 0.15];
 /**
  * @typedef {{time: number, dur: number, freq: number|null}} Note
  *   `time` and `dur` are in seconds; `freq` is null for a rest.
- * @typedef {{name: string, voice: string, gain: number, env: number[], notes: Note[]}} Track
+ * @typedef {{name: string, voice: string, gain: number, env: number[], octave?: number, notes: Note[]}} Track
  * @typedef {{tempo: number, loop: boolean, tracks: Track[], duration: number}} Score
  */
 
@@ -62,6 +62,7 @@ export function parseScore(text) {
   /** @type {Track[]} */
   const tracks = [];
 
+  /** @type {?Track} */
   let track = null;
   let beat = 0; // where the current track has got to, in quarter notes
   let lastDuration = 4;
@@ -72,6 +73,12 @@ export function parseScore(text) {
     const line = raw.replace(/#.*$/, '').trim();
     if (!line) return;
 
+    /**
+     * Refuses the score, naming the line. Never returns — declared as a type rather
+     * than with `@returns`, because that is the form that lets the checker read
+     * `if (!track) fail(...)` as a check and not a wish.
+     * @type {(message: string) => never}
+     */
     const fail = (message) => {
       throw new Error(`Score line ${index + 1}: ${message}`);
     };
@@ -173,12 +180,19 @@ export function parseScore(text) {
             continue;
           }
 
+          /** @type {?number} */
           let freq = null;
           if (pitch === 'x') {
             if (track.voice !== 'noise') fail('"x" is a noise hit; set "voice noise"');
           } else if (pitch !== '-') {
-            const [, letter, accidental, octave] = pitch.match(/^([a-g])([#b]?)(-?\d*)$/);
-            freq = noteToFreq(letter, accidental, octave === '' ? track.octave : Number(octave));
+            const parts = pitch.match(/^([a-g])([#b]?)(-?\d*)$/);
+            if (!parts) fail(`cannot read the pitch "${pitch}"`);
+            const [, letter, accidental, octave] = parts;
+            freq = noteToFreq(
+              letter,
+              accidental,
+              octave === '' ? (track.octave ?? 4) : Number(octave),
+            );
           }
 
           track.notes.push({ time: beat, dur: beats, freq });

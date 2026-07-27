@@ -115,11 +115,18 @@ describe('the shipped level', () => {
 describe('the opening stages', () => {
   const stage = (id) => stageLayers(STAGES.find((s) => s.id === id));
 
-  /** `n` copies of one direction, for routes that run in straight lines. */
+  /**
+   * `n` copies of one direction, for routes that run in straight lines.
+   * @param {number} n
+   * @param {Direction} direction
+   */
   const times = (n, [dx, dz]) => Array.from({ length: n }, () => [dx, dz]);
-  const EAST = [1, 0];
-  const WEST = [-1, 0];
-  const SOUTH = [0, 1];
+
+  /** @typedef {import('../src/types.js').Direction} Direction */
+  /** @type {Direction} */ const EAST = [1, 0];
+  /** @type {Direction} */ const WEST = [-1, 0];
+  /** @type {Direction} */ const SOUTH = [0, 1];
+  /** @type {Direction} */ const NORTH = [0, -1];
 
   it('walks First Steps to the star', () => {
     const game = makeGame(stage('first-steps'));
@@ -156,7 +163,6 @@ describe('the opening stages', () => {
 
   it('climbs Up and Over, and can only reach the star down the chute', () => {
     const game = makeGame(stage('up-and-over'));
-    const NORTH = [0, -1];
 
     // The pen the star sits in has one way in, and it is not at ground level.
     const map = game.tilemap;
@@ -179,7 +185,6 @@ describe('the opening stages', () => {
 
   it('crosses Over and Under both ways: the deck first, then the river', () => {
     const game = makeGame(stage('over-and-under'));
-    const NORTH = [0, -1];
 
     // The river is the only way to the star, and it takes the tube.
     walk(game, [...times(2, SOUTH), ...times(2, EAST)]);

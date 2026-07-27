@@ -42,6 +42,7 @@ export function createAudio() {
     scores[name] = parseScore(source);
   }
 
+  /** @type {?{stop: () => void}[]} */
   let playing = null;
   let muted = false;
   try {

@@ -12,6 +12,10 @@ const DOME_COLOR = 0xe03131;
  * A movement pattern is just a rule for which way to turn when the way ahead is
  * blocked, plus the heading to set off in. Vertical and horizontal bounce along
  * a line; the two rotational patterns wall-follow around a room.
+ *
+ * @type {Record<string, {start: Direction, turn: (d: Direction) => Direction}>}
+ *
+ * @typedef {import('./types.js').Direction} Direction
  */
 export const PATTERNS = {
   vertical: { start: [0, 1], turn: ([dx, dz]) => [-dx, -dz] },
@@ -54,6 +58,10 @@ export class Enemy {
 
     this._from = new THREE.Vector3();
     this._to = new THREE.Vector3();
+    // Declared here and filled in by reset(), which is also what a retry calls.
+    this._timer = 0;
+    this._t = 0;
+    this._moving = false;
     this.reset();
   }
 

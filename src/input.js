@@ -6,12 +6,17 @@
  * up as a stall between the first tile and the rest. The player walks for as
  * long as a direction is down, and paces itself at one tile per step.
  *
- * @param {object} [handlers]
- * @param {() => void} [handlers.onMute]
- * @param {() => void} [handlers.onRetry]
- * @param {() => boolean} [handlers.enabled] asked before every move: false while a
- *   panel is up, so the title screen and the stage-clear panel do not quietly let
- *   the player walk around behind them. Mute and retry are never gated.
+ * @typedef {object} InputHandlers
+ * @property {() => void} [onMute]
+ * @property {() => void} [onRetry]
+ * @property {() => boolean} [enabled] asked before every move: false while a panel is
+ *   up, so the title screen and the stage-clear panel do not quietly let the player
+ *   walk around behind them. Mute and retry are never gated.
+ */
+
+/**
+ * @param {import('./player.js').Player} player
+ * @param {InputHandlers} [handlers]
  */
 export function setupInput(player, { onMute, onRetry, enabled } = {}) {
   const canMove = () => enabled?.() ?? true;

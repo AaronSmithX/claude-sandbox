@@ -1,0 +1,17 @@
+{
+  // The suite, checked a little less strictly than the game.
+  //
+  // A test's whole business is reaching into a fixture: `map.get(2, 1).run` names a
+  // tile the test has just authored two lines above, and making every one of those
+  // prove the tile exists would bury what each test is actually saying. Tests also
+  // have a stronger guarantee than any checker — they run.
+  //
+  // What is still checked here is what running them cannot catch as clearly: a
+  // misspelled property, a helper called with the wrong shape, an import that has
+  // moved.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": false
+  },
+  "include": ["test/**/*.js", "src/**/*.js"]
+}

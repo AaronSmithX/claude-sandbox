@@ -7,7 +7,7 @@
  * rules rather than incidental detail of the render loop. The headless tests
  * drive this exact function, so they cannot drift away from what ships.
  *
- * @param {{tilemap, player, enemies, inventory, particles?}} world
+ * @param {import('./types.js').World} world
  * @param {number} dt seconds
  * @returns {{died?: boolean}} events for the caller to render
  */

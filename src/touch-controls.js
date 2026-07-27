@@ -18,12 +18,20 @@ const MOVES = {
 };
 
 /**
- * @param {{enabled?: () => boolean}} [options] `enabled` is asked before every
- *   move, so the pad is inert while a panel is up — matching the keyboard.
+ * @typedef {object} PadOptions
+ * @property {() => boolean} [enabled] asked before every move, so the pad is inert
+ *   while a panel is up — matching the keyboard.
+ */
+
+/**
+ * @param {import('./player.js').Player} player
+ * @param {PadOptions} [options]
  */
 export function setupTouchControls(player, { enabled } = {}) {
-  const root = document.getElementById('touch-controls');
-  if (!root) return;
+  const found = document.getElementById('touch-controls');
+  if (!found) return;
+  // Bound to a new name, so the hoisted handlers below can see that it is there.
+  const root = found;
 
   const canMove = () => enabled?.() ?? true;
 
@@ -60,8 +68,8 @@ export function setupTouchControls(player, { enabled } = {}) {
     btn.addEventListener('pointercancel', () => release(btn));
     // Mouse users can drag off a button; touch pointers stay captured by the
     // element they started on, so this only affects the pointer-fine case.
-    btn.addEventListener('pointerleave', (e) => {
-      if (e.pointerType !== 'touch') release(btn);
+    btn.addEventListener('pointerleave', (event) => {
+      if (/** @type {PointerEvent} */ (event).pointerType !== 'touch') release(btn);
     });
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
   }

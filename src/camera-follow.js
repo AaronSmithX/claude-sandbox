@@ -20,6 +20,17 @@ function smoothDamp(current, target, vel, smoothTime, dt) {
 }
 
 /**
+ * @typedef {object} FollowOptions
+ * @property {THREE.Vector3} [offset]
+ * @property {number} [smoothTime]
+ * @property {number} [followY]
+ * @property {() => number} [groundY] how high the ground under the target is.
+ *   Elevation has to move the frame — climb a stair and the camera climbs with you —
+ *   while the bob, the hop and the water sink must not, which is why this is asked
+ *   for separately instead of read off the target's own position.
+ */
+
+/**
  * Keeps an angled overhead camera at a fixed offset from the player.
  *
  * The camera's orientation is computed once and then frozen: the world slides
@@ -31,14 +42,9 @@ function smoothDamp(current, target, vel, smoothTime, dt) {
  */
 export class CameraFollow {
   /**
-   * @param {object} [options]
-   * @param {import('three').Vector3} [options.offset]
-   * @param {number} [options.smoothTime]
-   * @param {number} [options.followY]
-   * @param {() => number} [options.groundY] how high the ground under the target is.
-   *   Elevation has to move the frame — climb a stair and the camera climbs with
-   *   you — while the bob, the hop and the water sink must not, which is why this is
-   *   asked for separately instead of read off the target's own position.
+   * @param {THREE.PerspectiveCamera} camera
+   * @param {THREE.Object3D} target
+   * @param {FollowOptions} [options]
    */
   constructor(camera, target, { offset, smoothTime = 0.3, followY = 0.35, groundY } = {}) {
     this.camera = camera;

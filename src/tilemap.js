@@ -53,6 +53,7 @@ export const SWITCH_COLORS = {
  * nothing when you stand on it. So give a colour at least two switches, or the
  * one it has will be spent after a single press.
  */
+/** @type {Record<string, import('./types.js').TileDef>} */
 export const LEGEND = {
   '#': { type: 'wall' },
   '.': { type: 'floor' },
@@ -122,7 +123,11 @@ export const LEVEL_RISE = 0.5;
 // the side: you take them along their run or not at all.
 const RAMPS = new Set(['stair', 'slide']);
 
-/** The opposite direction. `|| 0` because negating a zero gives -0. */
+/**
+ * The opposite direction. `|| 0` because negating a zero gives -0.
+ * @param {import('./types.js').Direction} direction
+ * @returns {import('./types.js').Direction}
+ */
 const opposite = ([dx, dz]) => [-dx || 0, -dz || 0];
 
 /**
@@ -179,7 +184,7 @@ export class TileMap {
     /**
      * Called as things happen on the level, so effects can be hung off the rules
      * without the rules knowing about particles or sound.
-     * @type {?(name: 'pickup'|'door'|'switch', detail: object) => void}
+     * @type {((name: string, detail: {kind: string, color?: string, position: THREE.Vector3}) => void) | null}
      */
     this.onEvent = null;
 
@@ -195,12 +200,17 @@ export class TileMap {
     // `tiles` is the ground layer, one tile per cell — which is what nearly every
     // rule wants. `columns` is the whole stack, ground first, for the places where
     // a cell can hold more than one thing.
+    /** @type {(import('./types.js').Tile|null)[][]} */
     this.tiles = [];
+    /** @type {import('./types.js').Tile[][][]} */
     this.columns = [];
+    /** @type {{gx: number, gz: number, pattern: string}[]} */
     this.enemySpawns = [];
     // Kept flat, because pressing a switch has to reach every other switch of
     // its colour wherever it is on the map.
+    /** @type {import('./types.js').Tile[]} */
     this._switches = [];
+    /** @type {import('./types.js').Tile[]} */
     this._elevators = [];
 
     for (let z = 0; z < this.rows; z++) {
@@ -235,7 +245,15 @@ export class TileMap {
 
           // A layer sets the height, and a character can add to it: `'` on the
           // deck layer is one level above the deck.
-          const tile = { ...def, gx: x, gz: z, layer, level: layer + (def.level ?? 0) };
+          /** @type {import('./types.js').Tile} */
+          const tile = {
+            ...def,
+            gx: x,
+            gz: z,
+            layer,
+            level: layer + (def.level ?? 0),
+            baseY: 0,
+          };
           if (tile.type === 'switch') this._switches.push(tile);
           if (tile.type === 'elevator') this._elevators.push(tile);
 
@@ -396,6 +414,7 @@ export class TileMap {
     // Downhill sets the direction of travel, whichever way round it was authored.
     const downhill = above > below;
     const descending = downhill ? parts : [...parts].reverse();
+    /** @type {import('./types.js').Direction} */
     const step = downhill ? [dx, dz] : opposite([dx, dz]);
     const top = Math.max(above, below);
     const drop = Math.abs(above - below) / (descending.length + 1);
@@ -482,6 +501,17 @@ export class TileMap {
     return this.columns[gz][gx][layer] ?? null;
   }
 
+  /**
+   * Like `get`, but for the places that have already established the tile is there —
+   * inside the build loop, or on a tile handed back by `stepTarget`.
+   * @param {?import('./types.js').Tile} tile
+   * @returns {import('./types.js').Tile}
+   */
+  static known(tile) {
+    if (!tile) throw new Error('expected a tile');
+    return tile;
+  }
+
   /** Everything stacked in one cell, ground first. Empty off the map. */
   column(gx, gz) {
     if (gz < 0 || gz >= this.rows || gx < 0 || gx >= this.cols) return [];
@@ -527,7 +557,7 @@ export class TileMap {
     return this.heightOf(this.get(gx, gz, layer));
   }
 
-  /** @param {?object} tile */
+  /** @param {?import('./types.js').Tile} tile */
   heightOf(tile) {
     return (tile?.level ?? 0) * LEVEL_RISE;
   }
@@ -540,7 +570,7 @@ export class TileMap {
     return this.surfaceOf(this.get(gx, gz, layer));
   }
 
-  /** @param {?object} tile */
+  /** @param {?import('./types.js').Tile} tile */
   surfaceOf(tile) {
     if (!tile) return 0;
     return this.heightOf(tile) - (tile.type === 'water' ? WATER_SINK : 0);
@@ -551,7 +581,7 @@ export class TileMap {
     return this.isSlipperyTile(this.get(gx, gz, layer));
   }
 
-  /** @param {?object} tile */
+  /** @param {?import('./types.js').Tile} tile */
   isSlipperyTile(tile) {
     return tile?.type === 'ice' || tile?.type === 'slide';
   }
@@ -570,6 +600,7 @@ export class TileMap {
   isConnected(from, to) {
     if (!from || !to) return false;
 
+    /** @type {import('./types.js').Direction} */
     const move = [to.gx - from.gx, to.gz - from.gz];
     if (Math.abs(move[0]) + Math.abs(move[1]) !== 1) return false;
     if (!this._allowsMove(from, move)) return false;
@@ -607,13 +638,20 @@ export class TileMap {
     return null;
   }
 
-  /** Whether a ramp permits being crossed this way. Ordinary ground permits all. */
+  /**
+   * Whether a ramp permits being crossed this way. Ordinary ground permits all.
+   * @param {import('./types.js').Tile} tile
+   * @param {import('./types.js').Direction} move
+   */
   _allowsMove(tile, [dx, dz]) {
     if (!RAMPS.has(tile.type)) return true;
     const alongRun = tile.run === 'x' ? dz === 0 : dx === 0;
     if (!alongRun) return false;
     // A slide only ever goes one way.
-    if (tile.type === 'slide') return dx === tile.dir[0] && dz === tile.dir[1];
+    if (tile.type === 'slide') {
+      const [fallX, fallZ] = tile.dir ?? [0, 0];
+      return dx === fallX && dz === fallZ;
+    }
     return true;
   }
 
@@ -656,9 +694,12 @@ export class TileMap {
 
   // --- Rules ----------------------------------------------------------------
 
-  /** True when an obstacle tile's columns are currently up. */
+  /**
+   * True when an obstacle tile's columns are currently up.
+   * @param {import('./types.js').Tile} tile
+   */
   isRaised(tile) {
-    return tile.type === 'obstacle' && tile.group === this.phase[tile.color];
+    return tile.type === 'obstacle' && tile.group === this.phase[tile.color ?? ''];
   }
 
   /**
@@ -670,7 +711,7 @@ export class TileMap {
     return this.canEnterTile(this.get(gx, gz, layer), inventory);
   }
 
-  /** @param {?object} t */
+  /** @param {?import('./types.js').Tile} t */
   canEnterTile(t, inventory) {
     if (!t) return false;
 
@@ -738,7 +779,10 @@ export class TileMap {
     }
   }
 
-  /** @param {'pickup'|'door'|'switch'} name */
+  /**
+   * @param {'pickup'|'door'|'switch'} name
+   * @param {import('./types.js').Tile} tile
+   */
   _emit(name, tile) {
     this.onEvent?.(name, {
       kind: tile.type,
@@ -760,9 +804,10 @@ export class TileMap {
   pressSwitch(tile) {
     if (tile.type !== 'switch' || tile.pressed) return false;
 
-    for (const other of this._switchesOf(tile.color)) other.pressed = false;
+    const color = tile.color ?? '';
+    for (const other of this._switchesOf(color)) other.pressed = false;
     tile.pressed = true;
-    this.phase[tile.color] = this.phase[tile.color] === 'A' ? 'B' : 'A';
+    this.phase[color] = this.phase[color] === 'A' ? 'B' : 'A';
     return true;
   }
 
@@ -779,6 +824,7 @@ export class TileMap {
 
   _resetState() {
     // Group A is the one raised at the start of the level.
+    /** @type {Record<string, string>} */
     this.phase = { red: 'A', cyan: 'A', pink: 'A' };
     // Platforms and pickup bobs are driven by this, so a retry starts them over.
     this._elapsed = 0;
@@ -802,7 +848,7 @@ export class TileMap {
         t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
       }
       if (t.type === 'elevator') {
-        t.level = t.startUp ? t.high : t.low;
+        t.level = (t.startUp ? t.high : t.low) ?? t.level;
         if (t.platform) t.platform.position.y = this.heightOf(t);
       }
 

@@ -12,14 +12,17 @@ import { tickWorld } from '../../src/world.js';
  *   const game = makeGame(['#####', '#@gG*#', '#####']);
  */
 
-/** A headless tilemap from an inline level. No meshes are built. */
+/**
+ * A headless tilemap from an inline level. No meshes are built.
+ * @param {string[]|string[][]} rows one layer of the level, or several, ground first
+ */
 export function makeMap(rows) {
   return new TileMap(rows, { build: false });
 }
 
 /**
  * A whole headless game, wired the way main.js wires it.
- * @param {string[]} rows the miniature level
+ * @param {string[]|string[][]} rows the miniature level, one layer or several
  * @param {{enemies?: {interval?: number, phase?: number}}} [options]
  *   `enemies` overrides the pacing of every enemy, so a test can say "one step
  *   per second, starting now" instead of depending on the production tables.
@@ -36,7 +39,8 @@ export const FRAME = 1 / 60;
 
 /**
  * Advances the world exactly as the render loop does.
- * @returns {object[]} the events tickWorld returned, one entry per frame
+ * @param {import('../../src/types.js').World} game
+ * @returns {{died?: boolean}[]} the events tickWorld returned, one entry per frame
  */
 export function advance(game, seconds, dt = FRAME) {
   const events = [];
@@ -56,6 +60,9 @@ export function advance(game, seconds, dt = FRAME) {
  * "At rest" rather than a fixed duration, because one request is not always one
  * tile: a step onto ice slides on until something stops it.
  *
+ * @param {import('../../src/types.js').World} game
+ * @param {number} dx
+ * @param {number} dz
  * @returns {boolean} whether the move was allowed at all
  */
 export function step(game, dx, dz) {
@@ -71,12 +78,19 @@ export function step(game, dx, dz) {
   return accepted;
 }
 
-/** Walks a path of [dx, dz] steps, returning true only if every step landed. */
+/**
+ * Walks a path of [dx, dz] steps, returning true only if every step landed.
+ * @param {import('../../src/types.js').World} game
+ * @param {number[][]} path
+ */
 export function walk(game, path) {
   return path.every(([dx, dz]) => step(game, dx, dz));
 }
 
-/** Where the player is, for concise assertions. */
+/**
+ * Where the player is, for concise assertions.
+ * @param {{player: import('../../src/player.js').Player}} game
+ */
 export function at(game) {
   return { gx: game.player.gx, gz: game.player.gz };
 }

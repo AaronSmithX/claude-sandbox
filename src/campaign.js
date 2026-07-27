@@ -17,7 +17,7 @@ export class Campaign {
     /**
      * Called with (phase, stage) whenever the phase changes, including the first
      * time. The shell listens to this and nothing else.
-     * @type {?(phase: Phase, stage: import('./levels.js').Stage) => void}
+     * @type {((phase: Phase, stage: import('./levels.js').Stage) => void) | null}
      */
     this.onPhase = null;
 

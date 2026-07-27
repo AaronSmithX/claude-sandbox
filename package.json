@@ -9,12 +9,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json"
   },
   "dependencies": {
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "typescript": "^7.0.2",
     "vite": "^5.4.0",
     "vitest": "^2.1.0"
   }

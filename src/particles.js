@@ -133,7 +133,9 @@ export class Particles {
 function makeStarTexture(size = 64) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  // A 2d context is only ever null when the canvas is already lost, which cannot be
+  // the case for one made a line ago.
+  const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
   const c = size / 2;
 
   const glow = ctx.createRadialGradient(c, c, 0, c, c, c);

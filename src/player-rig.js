@@ -15,7 +15,15 @@ const CLOTH = 0xe2653a; // a darker tone for the legs, so they read separately
  * The limbs hang from pivot groups placed at the hip and shoulder, so rotating a
  * limb swings it from the joint instead of sliding the whole box.
  *
- * @returns {{root: THREE.Group, body: THREE.Group, parts: object}}
+ * @returns {{root: THREE.Group, body: THREE.Group, parts: RigParts}}
+ *
+ * @typedef {object} RigParts
+ * @property {THREE.Mesh} torso
+ * @property {THREE.Mesh} head
+ * @property {THREE.Object3D} legL
+ * @property {THREE.Object3D} legR
+ * @property {THREE.Object3D} armL
+ * @property {THREE.Object3D} armR
  *   `root` is what the game positions; `body` is the part that turns to face the
  *   direction of travel, so a turn never affects the rig's placement.
  */

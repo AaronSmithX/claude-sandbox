@@ -12,6 +12,7 @@
  * a one-way one.
  */
 
+/** @type {import('../../src/types.js').Direction[]} */
 const DIRECTIONS = [
   [1, 0],
   [-1, 0],
@@ -19,12 +20,18 @@ const DIRECTIONS = [
   [0, -1],
 ];
 
-/** How a tile is named in the returned set: a cell plus which layer of it. */
+/**
+ * How a tile is named in the returned set: a cell plus which layer of it.
+ * @param {import('../../src/types.js').Tile} tile
+ */
 export const tileKey = (tile) => `${tile.gx},${tile.gz},${tile.layer}`;
 
 /**
  * A platform is joined to every storey it serves, however it happens to be parked
  * when the map is parsed — over the course of a stage it visits all of them.
+ *
+ * @param {import('../../src/types.js').Tile} a
+ * @param {import('../../src/types.js').Tile} b
  */
 function servedByElevator(a, b) {
   const lift = a.type === 'elevator' ? a : b.type === 'elevator' ? b : null;
@@ -37,7 +44,7 @@ function servedByElevator(a, b) {
 /**
  * Flood fill from the spawn.
  *
- * @param {object} map a TileMap
+ * @param {import('../../src/tilemap.js').TileMap} map
  * @param {?string} [color] the colour whose raised obstacles block. Every other
  *   colour's obstacles are treated as passable, so one colour's puzzle cannot mask
  *   another's. The default, `null`, ignores obstacles altogether — which is what
@@ -81,16 +88,22 @@ export function reachableFrom(map, color = null) {
  * two presses — one to open the way in, and then the one inside, which closes it
  * again. Since either phase can be the one you arrive at, both have to be safe.
  *
+ * @param {import('../../src/tilemap.js').TileMap} map
+ * @param {import('../../src/types.js').Tile} tile
  * @returns {string[]} the offending phases, empty when the switch is always safe
  */
 export function sealedIn(map, tile) {
   return ['A', 'B'].filter((phase) => {
-    map.phase[tile.color] = phase;
+    map.phase[tile.color ?? ''] = phase;
     return !reachableFrom(map, tile.color).has(tileKey(tile));
   });
 }
 
-/** Every tile of a given type, on every layer, in row-major order. */
+/**
+ * Every tile of a given type, on every layer, in row-major order.
+ * @param {import('../../src/tilemap.js').TileMap} map
+ * @param {string} type
+ */
 export function tilesOfType(map, type) {
   return map.allTiles().filter((t) => t.type === type);
 }

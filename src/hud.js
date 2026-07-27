@@ -9,7 +9,16 @@ import { KEY_COLORS } from './tilemap.js';
  * nothing to say about the inner tube, and a dimmed chip for an item that does not
  * exist reads as something missed rather than something absent.
  *
- * @returns {{setStage: (info: {tilemap: object, name: string, index: number, total: number}) => void}}
+ * @typedef {object} StageInfo
+ * @property {import('./tilemap.js').TileMap} tilemap
+ * @property {string} name
+ * @property {number} index
+ * @property {number} total
+ */
+
+/**
+ * @param {import('./inventory.js').Inventory} inventory
+ * @returns {{setStage: (info: StageInfo) => void}}
  */
 export function setupHud(inventory) {
   const root = document.getElementById('hud');
@@ -44,7 +53,7 @@ export function setupHud(inventory) {
       // What the stage actually contains. A door counts as well as a key: the
       // colour is worth showing the moment the stage can ask you for it.
       const present = new Set();
-      for (const tile of tilemap.tiles.flat()) {
+      for (const tile of tilemap.allTiles()) {
         if (tile.type === 'key' || tile.type === 'door') present.add(tile.color);
         if (tile.type === 'tube' || tile.type === 'water') present.add('tube');
       }

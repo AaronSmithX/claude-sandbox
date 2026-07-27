@@ -196,11 +196,12 @@ npm run build
 npm run preview   # serve the built files locally
 ```
 
-### Tests
+### Tests and types
 
 ```bash
 npm test          # once
 npm run test:watch
+npm run typecheck # types, from the JSDoc
 ```
 
 [Vitest](https://vitest.dev/), running in plain Node — three.js builds its
@@ -233,6 +234,20 @@ Two suites are about the game rather than a rule: `test/levels.test.js` runs the
 authoring checks over every stage in `src/levels.js`, and `test/campaign.test.js`
 drives the title → stages → win flow straight through `Campaign`, which is why that
 class knows nothing about the DOM.
+
+### Types
+
+The game is plain JavaScript and stays that way. `npm run typecheck` runs `tsc` over
+it with `checkJs`, so the JSDoc that documents the code is also enforced by it — a
+misspelled field is an error rather than an `undefined` that quietly does nothing.
+Nothing is emitted and Vite never runs it, so the build is untouched; the shapes that
+are hard to infer (a tile, a stage, the world handed to `tickWorld`) are written down
+in `src/types.js`.
+
+`tsconfig.json` covers `src/` strictly. `tsconfig.tests.json` covers the suite with
+`strictNullChecks` off: a test's business is reaching into a fixture it authored two
+lines above, and making each of those prove the tile exists would bury what the test
+is saying. Both run in CI, and together they take about a fifth of a second.
 
 ## Deployment
 
@@ -275,7 +290,9 @@ site and publishes `dist/` to GitHub Pages.
 | `src/camera-follow.js` | Overhead camera that follows the player. |
 | `src/dispose.js` | Hands a stage's geometries and materials back when it is unloaded. |
 | `test/` | Vitest suite, built on miniature levels. |
+| `src/types.js` | JSDoc shapes shared across the code: a tile, a direction, the world. |
 | `vite.config.js` | Pages base path, and the test runner's config. |
+| `tsconfig.json` | Type checking for `src/`; `tsconfig.tests.json` for the suite. |
 
 ## Making it your own
 

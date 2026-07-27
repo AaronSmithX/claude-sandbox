@@ -66,7 +66,14 @@ describe('moving the player to another stage', () => {
   function partWayThrough() {
     const inventory = new Inventory();
     const player = new Player(makeMap(FIRST), inventory);
-    const game = { tilemap: player.tilemap, player, enemies: { update() {}, hits: () => null }, inventory };
+    // A real Enemies, which on these maps is an empty one: the point here is the
+    // player crossing from one stage to the next, not what is chasing it.
+    const game = {
+      tilemap: player.tilemap,
+      player,
+      enemies: new Enemies(player.tilemap),
+      inventory,
+    };
     player.press(1, 0);
     advance(game, 0.2);
     return { player, inventory, game };

@@ -4,7 +4,13 @@
  */
 export class Inventory {
   constructor() {
+    /** @type {((inventory: Inventory) => void) | null} */
     this.onChange = null;
+    /** @type {Record<string, number>} */
+    this.keys = {};
+    this.hasTube = false;
+    this.won = false;
+    this.dead = false;
     this.reset();
   }
 

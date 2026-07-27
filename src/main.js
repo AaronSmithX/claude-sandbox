@@ -14,6 +14,7 @@ import { tickWorld } from './world.js';
 import { createAudio, onFirstGesture } from './audio/index.js';
 
 const app = document.getElementById('app');
+if (!app) throw new Error('index.html is missing #app to render into');
 
 // --- Renderer ---------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true });

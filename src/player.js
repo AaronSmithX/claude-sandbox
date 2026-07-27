@@ -232,14 +232,20 @@ export class Player {
    * pair of coordinates: a cell can hold a floor and a deck above it, and which of
    * them you arrive on depends on the height you set out from.
    *
-   * @param {{carry?: number, silent?: boolean, sliding?: boolean}} [options]
-   *   `carry` is progress left over from the step before, so a slide or a held
-   *   walk runs on without pausing for a frame at each tile edge. Held keys are
-   *   read on arrival, not on a timer, which is why there is no repeat delay to
-   *   sit through. `silent` suppresses onStep, which stops a slide firing a footstep
-   *   for every tile it crosses. `sliding` asks for a slide's rules instead of a
-   *   deliberate step's, which stops a slide opening a door with your key.
+   * @param {number} dx
+   * @param {number} dz
+   * @param {MoveOptions} [options]
    * @returns {boolean} whether the move started
+   *
+   * @typedef {object} MoveOptions
+   * @property {number} [carry] progress left over from the step before, so a slide or
+   *   a held walk runs on without pausing for a frame at each tile edge. Held keys are
+   *   read on arrival, not on a timer, which is why there is no repeat delay to sit
+   *   through.
+   * @property {boolean} [silent] suppresses onStep, which stops a slide firing a
+   *   footstep for every tile it crosses.
+   * @property {boolean} [sliding] asks for a slide's rules instead of a deliberate
+   *   step's, which stops a slide opening a door with your key.
    */
   _beginMove(dx, dz, { carry = 0, silent = false, sliding = false } = {}) {
     if (this._moving || this.inventory.won || this.inventory.dead) return false;

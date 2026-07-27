@@ -184,6 +184,7 @@ describe('facing', () => {
   });
 
   it('turns to face each direction of travel', () => {
+    /** @type {[import('../src/types.js').Direction, number][]} */
     const cases = [
       [[1, 0], Math.PI / 2], // east
       [[-1, 0], -Math.PI / 2], // west

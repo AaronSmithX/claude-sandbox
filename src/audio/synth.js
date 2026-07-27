@@ -18,10 +18,21 @@ const OSCILLATOR_TYPES = {
 };
 
 export class Synth {
+  /** @param {{volume?: number}} [options] */
   constructor({ volume = 0.5 } = {}) {
+    // Everything below is built together by unlock(), and only from inside a user
+    // gesture — so until then there is no graph at all, not a half-built one.
+    /** @type {?AudioContext} */
     this.ctx = null;
+    /** @type {?GainNode} */
+    this.master = null;
+    /** @type {?GainNode} */
+    this.musicBus = null;
+    /** @type {?GainNode} */
+    this.sfxBus = null;
     this.volume = volume;
     this.muted = false;
+    /** @type {?AudioBuffer} */
     this._noiseBuffer = null;
   }
 
@@ -40,7 +51,8 @@ export class Synth {
       return;
     }
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext || /** @type {any} */ (window).webkitAudioContext;
     if (!AudioContextClass) return; // no Web Audio: the game is simply silent
     this.ctx = new AudioContextClass();
 
@@ -60,19 +72,17 @@ export class Synth {
 
   setMuted(muted) {
     this.muted = muted;
-    if (!this.ctx) return;
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
     // A short ramp rather than a jump, which would click.
-    this.master.gain.setTargetAtTime(
-      muted ? 0 : this.volume,
-      this.ctx.currentTime,
-      0.02,
-    );
+    master.gain.setTargetAtTime(muted ? 0 : this.volume, ctx.currentTime, 0.02);
   }
 
   /** Fades the music down (or back up) without touching sound effects. */
   setMusicLevel(level, seconds = 0.4) {
-    if (!this.ctx) return;
-    this.musicBus.gain.setTargetAtTime(level, this.ctx.currentTime, seconds / 3);
+    const { ctx, musicBus } = this;
+    if (!ctx || !musicBus) return;
+    musicBus.gain.setTargetAtTime(level, ctx.currentTime, seconds / 3);
   }
 
   /** Plays a whole short score immediately — for sound effects. */
@@ -91,13 +101,14 @@ export class Synth {
    * @returns {{stop: () => void}}
    */
   play(score) {
-    if (!this.ctx) return { stop() {} };
+    const ctx = this.ctx;
+    if (!ctx) return { stop() {} };
 
     const cursors = score.tracks.map(() => 0);
-    let origin = this.ctx.currentTime + 0.1;
+    let origin = ctx.currentTime + 0.1;
 
     const pump = () => {
-      const until = this.ctx.currentTime + LOOKAHEAD;
+      const until = ctx.currentTime + LOOKAHEAD;
 
       // The loop below may cross the end of the score, in which case it rewinds
       // and keeps filling — so a short score never leaves a gap at the seam.
@@ -125,8 +136,10 @@ export class Synth {
 
   /** One note: a source through its own envelope, into the given bus. */
   _schedule(track, note, at, bus) {
+    const ctx = this.ctx;
+    if (!ctx || !bus) return;
     if (note.freq === null && track.voice !== 'noise') return; // a rest
-    if (at < this.ctx.currentTime) return; // too late to be heard
+    if (at < ctx.currentTime) return; // too late to be heard
 
     const [attack, decay, sustain, release] = track.env;
     const peak = track.gain;
@@ -137,7 +150,7 @@ export class Synth {
     const bodyEnd = Math.max(at + note.dur, at + attack + decay);
     const stopAt = bodyEnd + release;
 
-    const envelope = this.ctx.createGain();
+    const envelope = ctx.createGain();
     envelope.gain.setValueAtTime(0.0001, at);
     envelope.gain.linearRampToValueAtTime(peak, at + attack);
     envelope.gain.linearRampToValueAtTime(held, at + attack + decay);
@@ -147,13 +160,13 @@ export class Synth {
 
     let source;
     if (track.voice === 'noise') {
-      source = this.ctx.createBufferSource();
+      source = ctx.createBufferSource();
       source.buffer = this._noise();
       source.loop = true;
     } else {
-      source = this.ctx.createOscillator();
+      source = ctx.createOscillator();
       source.type = OSCILLATOR_TYPES[track.voice];
-      source.frequency.setValueAtTime(note.freq, at);
+      source.frequency.setValueAtTime(note.freq ?? 0, at);
     }
     source.connect(envelope);
     source.start(at);
@@ -163,9 +176,11 @@ export class Synth {
 
   /** A second of white noise, made once and reused by every percussion hit. */
   _noise() {
+    const ctx = this.ctx;
+    if (!ctx) return null;
     if (!this._noiseBuffer) {
-      const length = this.ctx.sampleRate;
-      this._noiseBuffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+      const length = ctx.sampleRate;
+      this._noiseBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
       const data = this._noiseBuffer.getChannelData(0);
       for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
     }
