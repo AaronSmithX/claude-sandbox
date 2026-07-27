@@ -295,6 +295,26 @@ describe('the opening stages', () => {
     expect(game.tilemap.get(5, 4).open).toBe(false);
   });
 
+  it('uses the pads in Two Places at Once both ways', () => {
+    const game = makeGame(stage('two-places'));
+
+    walk(game, times(3, EAST)); // the third step is the pad
+    expect(at(game)).toEqual({ gx: 9, gz: 1 }); // and lands in the sealed room
+
+    step(game, -1, 0);
+    expect(game.inventory.keyCount('white')).toBe(1);
+
+    step(game, 1, 0); // back onto the pad, and back out again
+    expect(at(game)).toEqual({ gx: 4, gz: 1 });
+
+    walk(game, [...times(3, WEST), ...times(4, SOUTH), ...times(3, EAST)]);
+    expect(at(game)).toEqual({ gx: 4, gz: 5 });
+
+    expect(step(game, 0, 1)).toBe(true); // the white door the key was for
+    expect(step(game, 0, 1)).toBe(true); // and the star behind it
+    expect(game.inventory.won).toBe(true);
+  });
+
   it('crosses Thin Ice in three slides', () => {
     const game = makeGame(stage('thin-ice'));
 

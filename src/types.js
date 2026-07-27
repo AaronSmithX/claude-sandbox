@@ -46,6 +46,7 @@
  * @property {Direction} [dir]   the way a slide falls, or a stair descends
  * @property {number[]} [joins]  the levels at a ramp's two ends
  * @property {number} [phase]    where a platform starts in its cycle, 0..1
+ * @property {Tile} [partner]    the other end of a teleport pad
  *
  * @property {number} baseY      the height everything on this tile is placed from
  * @property {any} [mesh]        the tile's own object, if it has one

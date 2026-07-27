@@ -68,6 +68,13 @@ export function reachableFrom(map, color = null) {
 
   while (queue.length) {
     const tile = queue.shift();
+
+    // A pad is an edge to the far side of the map, not to a neighbour.
+    if (tile.type === 'pad' && tile.partner && !seen.has(tileKey(tile.partner))) {
+      seen.add(tileKey(tile.partner));
+      queue.push(tile.partner);
+    }
+
     for (const [dx, dz] of DIRECTIONS) {
       for (const to of map.column(tile.gx + dx, tile.gz + dz)) {
         if (!passable(to) || seen.has(tileKey(to))) continue;

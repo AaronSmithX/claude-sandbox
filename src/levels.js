@@ -190,6 +190,31 @@ const HEAVY_LIFTING = {
 };
 
 /**
+ * Teleport pads, which are the only way into the room the key is in — and the only way
+ * out of it again, since the pad you arrive on will take you back the moment you step
+ * off it and on again. So the pair is used twice, in both directions, and the white
+ * door on the far side of the map is what makes the trip worth taking.
+ *
+ * @type {Stage}
+ */
+const TWO_PLACES = {
+  id: 'two-places',
+  name: 'Two Places at Once',
+  hint: 'A <b>pad</b> takes you to the one wearing its colour. Both ways.',
+  rows: [
+    '###########',
+    '#@..a#..wa#',
+    '#....#....#',
+    '#....#....#',
+    '#.#########',
+    '#.........#',
+    '####W######',
+    '####*######',
+    '###########',
+  ],
+};
+
+/**
  * The original single-level game, kept whole as the finale: nine rooms on a 16x16
  * grid, chained so every mechanic sits on the critical path — ice corridor ->
  * gold door -> inner tube -> red switch -> pink switch -> white key -> violet
@@ -230,6 +255,7 @@ export const STAGES = [
   OVER_AND_UNDER,
   GOING_UP,
   HEAVY_LIFTING,
+  TWO_PLACES,
   THE_GAUNTLET,
 ];
 

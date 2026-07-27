@@ -39,6 +39,9 @@ export class Player {
     this.onSlideStart = null;
     // Fired when a crate is shoved, so that can be heard too.
     this.onPush = null;
+    // Fired after a pad has moved the player, so the camera can stop following and
+    // simply be there: a warp is not a walk, and the frame should not sweep the level.
+    this.onTeleport = null;
     /**
      * The crates on this stage — what a step into an occupied tile can shove. Set by
      * whoever wires the world up; a stage without crates leaves it null.
@@ -88,6 +91,9 @@ export class Player {
     // The way the last step went, which is the way a slide carries on.
     this._direction = [0, 1];
     this._sliding = false;
+    // True while standing on the pad a pad just delivered us to, so the pair is a
+    // trip rather than a loop.
+    this._arrivedByPad = false;
     // Directions currently held down, oldest first. The last one wins, so
     // pressing a second direction takes over and letting it go hands control
     // back to the one still held.
@@ -171,6 +177,7 @@ export class Player {
     this._hopScale = 1;
     this._sliding = false;
     this._hasMoved = false;
+    this._arrivedByPad = false;
     this._held.length = 0;
     this._direction = [0, 1];
     this._facing = 0;
@@ -278,6 +285,8 @@ export class Player {
 
     this.prevGx = from.gx;
     this.prevGz = from.gz;
+    // Off the pad, so the next one may take us somewhere.
+    this._arrivedByPad = false;
     this.tile = to;
     this.gx = to.gx;
     this.gz = to.gz;
@@ -371,8 +380,43 @@ export class Player {
     // Arriving on the tile is what triggers pickups, switches and the goal.
     if (!this._moving) {
       this.tilemap.onEnter(this.gx, this.gz, this.inventory, this.layer);
-      this._settleOrSlide(carry);
+      if (!this._takePad()) this._settleOrSlide(carry);
     }
+  }
+
+  /**
+   * A pad, if this tile is one: the player is put down at the other end.
+   *
+   * The trip ends whatever was happening — a slide stops, a held direction has to be
+   * asked for again — because arriving somewhere else is not a step, and carrying a
+   * slide's momentum through a pad would be a way to be flung out of the level.
+   *
+   * The pad arrived on cannot send you back until you step off it, or the pair would
+   * be a loop with no way out.
+   *
+   * @returns {boolean} whether a pad took the player somewhere
+   */
+  _takePad() {
+    if (this._arrivedByPad) return false;
+
+    const destination = this.tilemap.takePad(this.tile);
+    if (!destination) return false;
+
+    this.tile = destination;
+    this.gx = destination.gx;
+    this.gz = destination.gz;
+    // No claim to have come from anywhere: a patrol cannot catch a player who was
+    // never between the two tiles.
+    this.prevGx = this.gx;
+    this.prevGz = this.gz;
+    this._arrivedByPad = true;
+    this._sliding = false;
+    this._moving = false;
+    this._t = 0;
+    this._snapToGrid();
+    this._applyPose();
+    this.onTeleport?.();
+    return true;
   }
 
   /**

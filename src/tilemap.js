@@ -17,6 +17,14 @@ export const SWITCH_COLORS = {
   pink: 0xec4899,
 };
 
+// A third palette, for teleport pads. Neither a key colour nor a switch colour: a pad
+// is a place, not a thing you carry or press, and it should not read as either.
+export const PAD_COLORS = {
+  a: 0x4c9aff,
+  b: 0xff9f43,
+  c: 0x2ee6a8,
+};
+
 /**
  * Map legend. Case convention: an uppercase letter is the thing that blocks
  * you, its lowercase partner is the state that doesn't.
@@ -34,6 +42,9 @@ export const SWITCH_COLORS = {
  *   B    a crate: pushable, one tile at a time, and only from behind
  *   p q r  pressure plates — red, cyan, pink
  *   P Q R  the gate each one holds open, of the same colour
+ *
+ *   a b c  teleport pads. Each letter appears exactly twice, and the two are the two
+ *          ends of one trip: step onto either and you arrive at the other.
  *
  * A map can also be several grids deep, ground first, which is what a bridge needs:
  * a deck on the layer above the water it crosses. A space means "nothing here" —
@@ -88,6 +99,10 @@ export const LEGEND = {
   P: { type: 'gate', color: 'red' },
   Q: { type: 'gate', color: 'cyan' },
   R: { type: 'gate', color: 'pink' },
+  // Teleport pads, in pairs. The letter is the pair.
+  a: { type: 'pad', color: 'a' },
+  b: { type: 'pad', color: 'b' },
+  c: { type: 'pad', color: 'c' },
   '@': { type: 'spawn' },
   '*': { type: 'star' },
   O: { type: 'tube' },
@@ -250,6 +265,8 @@ export class TileMap {
     this._plates = [];
     /** @type {import('./types.js').Tile[]} */
     this._gates = [];
+    /** @type {import('./types.js').Tile[]} */
+    this._pads = [];
     // Kept flat, because pressing a switch has to reach every other switch of
     // its colour wherever it is on the map.
     /** @type {import('./types.js').Tile[]} */
@@ -303,6 +320,7 @@ export class TileMap {
           if (tile.type === 'elevator') this._elevators.push(tile);
           if (tile.type === 'plate') this._plates.push(tile);
           if (tile.type === 'gate') this._gates.push(tile);
+          if (tile.type === 'pad') this._pads.push(tile);
 
           this.columns[z][x].push(tile);
           if (layer === 0) this.tiles[z][x] = tile;
@@ -312,6 +330,7 @@ export class TileMap {
 
     this._deriveRamps();
     this._deriveElevators();
+    this._derivePads();
   }
 
   /** Every tile on every layer, ground first. */
@@ -482,6 +501,28 @@ export class TileMap {
     });
 
     return parts;
+  }
+
+  /**
+   * Ties each pair of pads together.
+   *
+   * A pad is only a pad if it has exactly one partner, so a map with one — or three —
+   * of a letter is refused rather than quietly becoming a tile that does nothing.
+   */
+  _derivePads() {
+    for (const color of Object.keys(PAD_COLORS)) {
+      const pair = this._pads.filter((tile) => tile.color === color);
+      if (pair.length === 0) continue;
+      if (pair.length !== 2) {
+        const where = pair.map((t) => `${t.gx},${t.gz}`).join(' and ');
+        throw new Error(
+          `Teleport pad "${color}" appears ${pair.length} times (at ${where}): pads ` +
+            'come in pairs',
+        );
+      }
+      pair[0].partner = pair[1];
+      pair[1].partner = pair[0];
+    }
   }
 
   /**
@@ -872,7 +913,7 @@ export class TileMap {
   }
 
   /**
-   * @param {'pickup'|'door'|'switch'} name
+   * @param {'pickup'|'door'|'switch'|'teleport'} name
    * @param {import('./types.js').Tile} tile
    */
   _emit(name, tile) {
@@ -951,6 +992,21 @@ export class TileMap {
       }
 
     }
+  }
+
+  /**
+   * The far end of a pad, and the announcement that the trip happened — both ends, so
+   * the sparks show where you went as well as where you were.
+   *
+   * @param {?import('./types.js').Tile} tile
+   * @returns {?import('./types.js').Tile} where the pad leads, or null if it is not one
+   */
+  takePad(tile) {
+    if (!tile || tile.type !== 'pad' || !tile.partner) return null;
+    const partner = tile.partner;
+    this._emit('teleport', tile);
+    this._emit('teleport', partner);
+    return partner;
   }
 
   /** Restores the level to its authored state, for a retry. */
@@ -1225,6 +1281,42 @@ export class TileMap {
         columns.position.set(world.x, world.y + COLUMN_RAISED_Y, world.z);
         tile.columns = columns;
         return columns;
+      }
+
+      case 'pad': {
+        const group = new THREE.Group();
+        group.position.set(world.x, world.y, world.z);
+
+        // A pale face, so a pad reads as a bright patch of nothing-in-particular...
+        const face = new THREE.Mesh(
+          new THREE.BoxGeometry(TILE_SIZE * 0.88, 0.05, TILE_SIZE * 0.88),
+          new THREE.MeshStandardMaterial({
+            color: 0xeef3fb,
+            roughness: 0.35,
+            emissive: 0x30384a,
+          }),
+        );
+        face.position.y = 0.03;
+        face.receiveShadow = true;
+        group.add(face);
+
+        // ...and a square outline in the pair's own colour, which is the only thing
+        // that says where it goes: find the other one wearing this colour.
+        const edge = this._litMaterial(PAD_COLORS[tile.color ?? 'a'], 0.6);
+        const long = TILE_SIZE * 0.88;
+        for (const [ox, oz, sx, sz] of [
+          [0, -0.44, long, 0.08],
+          [0, 0.44, long, 0.08],
+          [-0.44, 0, 0.08, long],
+          [0.44, 0, 0.08, long],
+        ]) {
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.07, sz), edge);
+          bar.position.set(ox, 0.05, oz);
+          group.add(bar);
+        }
+
+        tile.mesh = group;
+        return group;
       }
 
       case 'plate': {

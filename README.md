@@ -32,7 +32,7 @@ to begin before the page has been interacted with.
 
 ## Stages
 
-The game is a short run of stages, played in order from the title screen: seven that
+The game is a short run of stages, played in order from the title screen: eight that
 each introduce one thing, then the original single level as the finale with
 everything on it at once.
 
@@ -45,6 +45,7 @@ everything on it at once.
 | **Over and Under** | A bridge over a river, and the same river swum underneath it. |
 | **Going Up** | An elevator, and the waiting that comes with one. |
 | **Heavy Lifting** | A crate, the plate it has to end up on, and the gate that opens. |
+| **Two Places at Once** | Teleport pads, used in both directions to fetch a key. |
 | **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
 
 Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
@@ -78,6 +79,7 @@ corner says which stage you are on.
 | **Crates** | Push one by walking into it. It goes one tile, away from you, and never comes back towards you — so a crate shoved into a corner stays there. |
 | **Plates** (red, cyan, pink) | Held down by anything standing on it: you, or a crate. |
 | **Gates** | Open for exactly as long as a plate of their colour is held. A crate on the plate is what lets you be somewhere else. |
+| **Teleport pads** | Pale tiles with a coloured outline, in pairs. Step on one and you arrive at the other; step off and back on to come back. |
 | **Star** | Reaching it clears the stage. |
 | **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one restarts the stage. |
 
@@ -144,6 +146,18 @@ hold a plate down and be at the gate at the same time, so something else has to 
 the holding. Standing in a gateway also holds that gate open, so letting go of the
 last plate can never shut a gate on you. Patrols treat a gate like a door — closed
 either way — and a crate like a wall.
+
+### Teleport pads
+
+Pads come in pairs — two tiles wearing the same colour — and stepping onto either one
+puts you down on the other. The pad you *arrive* on will not send you back until you
+step off it and on again, so a pair is a door you can go through twice rather than a
+loop with no way out.
+
+A pad ends whatever was happening: a slide stops there rather than carrying you
+through, and the camera is put where you now are instead of sweeping the level to
+catch up. Crates cannot be pushed onto a pad, and patrols walk over one as though it
+were the floor it looks like.
 
 ### Enemies
 
@@ -332,6 +346,7 @@ site and publishes `dist/` to GitHub Pages.
   E e  elevator, starting at the top / at the bottom
   B    a pushable crate
   p q r  pressure plates    P Q R  the gate each colour opens
+  a b c  teleport pads — each letter used exactly twice, once at each end
 
   g v w   keys  — gold, violet, white
   G V W   doors — gold, violet, white

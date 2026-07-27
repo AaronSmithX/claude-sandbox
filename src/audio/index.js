@@ -12,6 +12,7 @@ import slideSource from './scores/slide.txt?raw';
 import pickupSource from './scores/pickup.txt?raw';
 import doorSource from './scores/door.txt?raw';
 import switchSource from './scores/switch.txt?raw';
+import teleportSource from './scores/teleport.txt?raw';
 import deathSource from './scores/death.txt?raw';
 import winSource from './scores/win.txt?raw';
 
@@ -24,6 +25,7 @@ export const SCORE_SOURCES = {
   pickup: pickupSource,
   door: doorSource,
   switch: switchSource,
+  teleport: teleportSource,
   death: deathSource,
   win: winSource,
 };

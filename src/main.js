@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TileMap, KEY_COLORS } from './tilemap.js';
+import { TileMap, KEY_COLORS, PAD_COLORS } from './tilemap.js';
 import { STAGES, stageLayers } from './levels.js';
 import { Campaign } from './campaign.js';
 import { Particles } from './particles.js';
@@ -117,6 +117,9 @@ player.onFirstMove = () => document.body.classList.add('has-moved');
 player.onStep = () => audio.sfx('footstep');
 player.onSlideStart = () => audio.sfx('slide');
 player.onPush = () => audio.sfx('switch');
+// A warp is not a walk: the camera is put where the player now is, rather than sweeping
+// the level to catch up.
+player.onTeleport = () => cameraFollow.snap();
 
 // --- Overlays ---------------------------------------------------------------
 const overlays = {
@@ -144,6 +147,18 @@ const PICKUP_COLORS = {
 
 function onTileEvent(name, detail) {
   audio.sfx(name);
+
+  // A pad announces both of its ends, so the sparks say where you went as well as
+  // where you were.
+  if (name === 'teleport') {
+    particles.burst(detail.position.setY(0.4), {
+      color: PAD_COLORS[detail.color ?? 'a'],
+      count: 12,
+      rise: 2.2,
+    });
+    return;
+  }
+
   if (name !== 'pickup') return;
   const color = PICKUP_COLORS[detail.kind]?.(detail.color) ?? 0xffffff;
   // Burst at chest height rather than at the floor, where the item was.
