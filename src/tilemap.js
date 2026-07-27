@@ -1685,6 +1685,12 @@ const DECK_THICKNESS = 0.05;
 // distance, few enough that each tread is a chunky block rather than a sliver.
 const STAIR_TREADS = 3;
 
+// A chute's ice bed, and the stone soffit closing it from below. Named because what
+// goes under the chute is positioned off the underside of the bed, and two literals a
+// dozen lines apart is how it came to be poking through in the first place.
+const SLIDE_BED = 0.08;
+const SLIDE_SOFFIT = 0.14;
+
 /**
  * A staircase filling one tile: treads climbing from the low end to the high one,
  * each a block standing on the ground rather than a step floating above it.
@@ -1715,9 +1721,9 @@ function buildStair(tile, treadMaterial, sideMaterial) {
 }
 
 /**
- * One tile of a chute: a slab tilted to match the fall, a plinth holding it up, and
- * a rail down each side — which is what tells a chute apart from ice at a glance,
- * since both are the same bright glassy material.
+ * One tile of a chute: a slab tilted to match the fall, a rail down each side — which
+ * is what tells a chute apart from ice at a glance, since both are the same bright
+ * glassy material — and, underneath, a soffit along the slab with a plinth beneath it.
  *
  * Built with local +z as downhill, then turned to face the tile's own `dir`.
  */
@@ -1727,11 +1733,17 @@ function buildSlide(tile, drop, surfaceMaterial, frameMaterial) {
   // The slab spans one tile along the fall, so its tilt is the fall over a tile.
   const tilt = Math.atan2(drop, TILE_SIZE);
   const length = Math.hypot(TILE_SIZE, drop) * 1.02;
+  // How far the downhill end of a tilted slab sits below its middle. `centre` is the
+  // height of the middle, so this is the difference between "the height of the chute"
+  // and the height of the lowest ice in the tile — which is what anything underneath
+  // has to clear.
+  const fall = (length / 2) * Math.sin(tilt);
 
   const bed = new THREE.Mesh(
-    new THREE.BoxGeometry(TILE_SIZE * 0.86, 0.08, length),
+    new THREE.BoxGeometry(TILE_SIZE * 0.86, SLIDE_BED, length),
     surfaceMaterial,
   );
+  bed.name = 'slide-bed';
   bed.rotation.x = tilt;
   bed.position.y = centre;
   bed.receiveShadow = true;
@@ -1739,20 +1751,47 @@ function buildSlide(tile, drop, surfaceMaterial, frameMaterial) {
 
   for (const side of [-1, 1]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, length), frameMaterial);
+    rail.name = 'slide-rail';
     rail.rotation.x = tilt;
     rail.position.set(side * TILE_SIZE * 0.45, centre + 0.06, 0);
     rail.castShadow = true;
     group.add(rail);
   }
 
-  // A plinth under the bed, from below the floor plane up to the chute.
-  const support = new THREE.Mesh(
-    new THREE.BoxGeometry(TILE_SIZE * 0.8, centre + 0.2, TILE_SIZE * 0.9),
+  // The stone under the chute is in two parts, and both of them stop below the ice.
+  //
+  // It was one flat-topped block reaching up to `centre` — but `centre` is the height
+  // of the *middle* of a tilted slab, so across the whole downhill half of the tile the
+  // block stood proud of the bed: square-edged, and in the same stone as a stair tread.
+  // It read as a step cut through the chute, which is exactly what it looked like.
+  //
+  // So: a soffit tilted with the bed, which is what actually closes the underside, and
+  // a plinth below that, whose flat top is level with the soffit's lowest corner and
+  // therefore never reaches the ice anywhere.
+  const soffit = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE_SIZE * 0.86, SLIDE_SOFFIT, length),
     frameMaterial,
   );
-  support.position.y = centre - (centre + 0.2) / 2;
-  support.receiveShadow = true;
-  group.add(support);
+  soffit.name = 'slide-soffit';
+  soffit.rotation.x = tilt;
+  soffit.position.y = centre - SLIDE_BED / 2 - SLIDE_SOFFIT / 2;
+  soffit.receiveShadow = true;
+  group.add(soffit);
+
+  const plinthTop = centre - SLIDE_BED / 2 - SLIDE_SOFFIT - fall;
+  const plinthHeight = plinthTop + 0.2; // down past the floor plane, so nothing floats
+  // A chute that starts low and falls steeply leaves no room for one, and a box of
+  // negative height is a box turned inside out.
+  if (plinthHeight > 0.02) {
+    const plinth = new THREE.Mesh(
+      new THREE.BoxGeometry(TILE_SIZE * 0.8, plinthHeight, TILE_SIZE * 0.9),
+      frameMaterial,
+    );
+    plinth.name = 'slide-plinth';
+    plinth.position.y = plinthTop - plinthHeight / 2;
+    plinth.receiveShadow = true;
+    group.add(plinth);
+  }
 
   group.rotation.y = Math.atan2(tile.dir[0], tile.dir[1]);
   return group;

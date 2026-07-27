@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseDraft, offsetOf, STARTER_SCORE } from '../src/audio-editor/draft.js';
+import {
+  parseDraft,
+  offsetOf,
+  discardedScore,
+  STARTER_SCORE,
+  STARTER_NAME,
+} from '../src/audio-editor/draft.js';
+import { SCORE_SOURCES } from '../src/audio/index.js';
 import { scoreProblems } from '../src/audio/score-checks.js';
 import { scorePathFor, SCORES_DIR } from '../src/audio-editor/save-path.js';
 
@@ -67,6 +74,45 @@ describe('offsetOf', () => {
     // The roll is drawn from the last score that parsed, which can be behind what is
     // in the box — a click must not put the caret off the end of it.
     expect(offsetOf('short', { line: 99, col: 99 })).toBe(5);
+  });
+});
+
+describe('discardedScore', () => {
+  const sources = { theme: 'tempo 90\n', win: 'tempo 200\n' };
+
+  it('goes back to the score on disk when the draft is an edit of one', () => {
+    expect(discardedScore('theme', sources)).toEqual({ name: 'theme', text: 'tempo 90\n' });
+  });
+
+  it('ignores space either side of the name, which a field collects easily', () => {
+    expect(discardedScore('  win ', sources)).toEqual({ name: 'win', text: 'tempo 200\n' });
+  });
+
+  it('goes back to the starting score when the name is not one on disk', () => {
+    expect(discardedScore('sketch', sources)).toEqual({
+      name: STARTER_NAME,
+      text: STARTER_SCORE,
+    });
+  });
+
+  it('is not fooled by a name that every object answers to', () => {
+    // `sources['constructor']` is not undefined, and the name box is a place a person
+    // can type that word.
+    expect(discardedScore('constructor', sources).text).toBe(STARTER_SCORE);
+    expect(discardedScore('__proto__', sources).text).toBe(STARTER_SCORE);
+  });
+});
+
+describe('STARTER_NAME', () => {
+  it('is a legal name to save under', () => {
+    expect(scorePathFor(STARTER_NAME)).toBe(`${SCORES_DIR}/${STARTER_NAME}.txt`);
+  });
+
+  it('is not the name of a score the game plays', () => {
+    // The editor opens on STARTER_SCORE under this name, and Save writes whatever the
+    // name box says — so a default of `theme` would make a first, exploratory Save
+    // replace the game's music with the demo.
+    expect(Object.keys(SCORE_SOURCES)).not.toContain(STARTER_NAME);
   });
 });
 

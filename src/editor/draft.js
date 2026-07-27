@@ -132,6 +132,45 @@ export function formatDraft(stage) {
 }
 
 /**
+ * A blank slate to start a stage from, under an id no stage on disk is using.
+ *
+ * The id matters more than it looks. Save decides between replacing a stage and adding
+ * one by that id alone, so handing out `new-stage` twice would mean the second level
+ * someone authored silently overwrote the first. Numbering from the second keeps the
+ * common case — the first new stage on a clean checkout — reading as plain
+ * `new-stage`.
+ *
+ * @param {readonly import('../levels.js').Stage[]} stages what is on disk
+ * @returns {Draft}
+ */
+export function freshDraft(stages) {
+  const taken = new Set(stages.map((stage) => stage.id));
+  if (!taken.has(STARTER_DRAFT.id)) return STARTER_DRAFT;
+  let n = 2;
+  while (taken.has(`${STARTER_DRAFT.id}-${n}`)) n++;
+  return { ...STARTER_DRAFT, id: `${STARTER_DRAFT.id}-${n}`, name: `${STARTER_DRAFT.name} ${n}` };
+}
+
+/**
+ * What Discard goes back to: the stage as it is on disk, if the draft is an edit of
+ * one, and a blank slate if it is not.
+ *
+ * The distinction is the whole point of the button. A draft that started as `Thin Ice`
+ * is being *edited*, and throwing the edits away should leave `Thin Ice` on the screen,
+ * not an empty room — otherwise the only way back to the shipped map is to remember
+ * which one it was and find it in the dropdown again. A draft that started from nothing
+ * has nothing behind it, so it goes back to the beginning.
+ *
+ * @param {string} id the id currently in the box
+ * @param {readonly import('../levels.js').Stage[]} stages what is on disk
+ * @returns {Draft}
+ */
+export function discardedDraft(id, stages) {
+  const stage = stages.find((candidate) => candidate.id === id.trim());
+  return stage ? formatDraft(stage) : freshDraft(stages);
+}
+
+/**
  * The stage as it would be written in `src/levels.js` — an object literal, indented
  * and quoted the way the stages already there are.
  *
@@ -169,14 +208,26 @@ export function serializeStage(stage) {
 }
 
 /**
+ * The name a stage is declared under in `src/levels.js`: the id, shouted.
+ *
+ * Every shipped stage already follows from its id this way, and that is worth more
+ * than tidiness — it is what lets `./levels-source.js` find the declaration it is
+ * replacing without having to understand the file it is in.
+ *
+ * @param {string} id
+ */
+export function constantFor(id) {
+  return (id || 'new_stage').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+/**
  * The whole thing, ready to paste: the type annotation and the `const` that every
  * stage in `src/levels.js` is declared with, around the literal.
  *
  * @param {import('../levels.js').Stage} stage
  */
 export function stageSource(stage) {
-  const constant = (stage.id || 'new_stage').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  return `/** @type {Stage} */\nconst ${constant} = ${serializeStage(stage)};\n`;
+  return `/** @type {Stage} */\nconst ${constantFor(stage.id)} = ${serializeStage(stage)};\n`;
 }
 
 /**

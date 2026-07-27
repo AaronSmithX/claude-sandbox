@@ -5,6 +5,7 @@ import { BIG_MAP } from './helpers/stages.js';
 import { Inventory } from '../src/inventory.js';
 import { makeMap } from './helpers/level.js';
 import { reachableFrom, sealedIn } from '../src/reach.js';
+import { STAGES, stageLayers } from '../src/levels.js';
 
 describe('TileMap parsing', () => {
   it('rejects a character the legend does not bind, and says where', () => {
@@ -583,5 +584,105 @@ describe('reset', () => {
     expect(map.get(3, 1).open).toBe(false);
     expect(map.isRaised(map.get(1, 2))).toBe(true);
     expect(map.isPressed(map.get(4, 1))).toBe(false);
+  });
+});
+
+describe('what a chute is built from', () => {
+  // Built with meshes, since where the stone sits relative to the ice is the whole
+  // point. A chute is an ice bed tilted across the tile, rails down its flanks, and
+  // stone underneath — and the stone is the part that was wrong: a flat-topped block
+  // reaching up to the height of the *middle* of the tilted bed stands proud of it over
+  // the entire downhill half, reading as a stair tread cut through the slide.
+  const built = (rows) => new TileMap(rows, { build: true });
+
+  /**
+   * Every mesh `buildSlide` made, by the name it gave it, reduced to the four numbers
+   * that decide whether it is above the ice or below it.
+   */
+  function slideParts(map) {
+    /** @type {Record<string, {y: number, tilt: number, halfHeight: number, halfLength: number}[]>} */
+    const parts = {};
+    map.group.traverse((object) => {
+      if (!object.isMesh || !object.name.startsWith('slide-')) return;
+      const { height, depth } = object.geometry.parameters;
+      (parts[object.name] ??= []).push({
+        y: object.getWorldPosition(object.position.clone()).y,
+        tilt: object.rotation.x,
+        halfHeight: height / 2,
+        halfLength: depth / 2,
+      });
+    });
+    return parts;
+  }
+
+  // A slab tilted about x has its downhill end at local +z, so `end` is +1 downhill and
+  // -1 uphill. Both of these have to be read at an *end* rather than at the middle:
+  // reading the middle is precisely the mistake that put a step through the chute.
+
+  /** The highest this part reaches at one end of the tile. */
+  const topAt = (p, end) =>
+    p.y - end * p.halfLength * Math.sin(p.tilt) + p.halfHeight * Math.cos(p.tilt);
+
+  /** The underside of the ice at that same end. */
+  const iceUnderAt = (bed, end) =>
+    bed.y - end * bed.halfLength * Math.sin(bed.tilt) - bed.halfHeight * Math.cos(bed.tilt);
+
+  /** Nothing made of stone may surface through the bed, at either end. */
+  function expectStoneUnderIce(parts, where) {
+    const bed = parts['slide-bed'];
+    expect(bed, `${where}: no chute was built`).toBeDefined();
+    for (const name of ['slide-soffit', 'slide-plinth']) {
+      for (const part of parts[name] ?? []) {
+        for (const end of [-1, 1]) {
+          // Against the lowest bed on the map, so a multi-tile chute is held to the
+          // tile the stone is actually under and every one below it.
+          const ice = Math.min(...bed.map((b) => iceUnderAt(b, end)));
+          expect(
+            topAt(part, end),
+            `${where}: ${name} surfaces through the ice at the ${end > 0 ? 'downhill' : 'uphill'} end`,
+          ).toBeLessThanOrEqual(ice + 1e-9);
+        }
+      }
+    }
+  }
+
+  // A one-tile chute from raised ground down to the floor: the shape every chute in
+  // the game is made of.
+  const CHUTE = ['#####', "#@'.#", "#'\\'#", '#...#', '#####'];
+
+  it('puts an ice bed and two rails on the tile', () => {
+    const parts = slideParts(built(CHUTE));
+    expect(parts['slide-bed']).toHaveLength(1);
+    expect(parts['slide-rail']).toHaveLength(2);
+    expect(parts['slide-bed'][0].tilt).toBeGreaterThan(0); // it descends
+  });
+
+  it('keeps every piece of stone below the ice, along the whole tile', () => {
+    // The regression: `slide-plinth` used to top out at the bed's midpoint height,
+    // which is above the ice everywhere past the middle of the tile.
+    expectStoneUnderIce(slideParts(built(CHUTE)), 'a one-tile chute');
+  });
+
+  it('closes the underside with a soffit lying along the bed, not across it', () => {
+    // Capping the plinth alone would leave a wedge of daylight under the uphill half.
+    // The soffit fills it, which it can only do by sharing the bed's tilt.
+    const parts = slideParts(built(CHUTE));
+    expect(parts['slide-soffit']).toHaveLength(1);
+    expect(parts['slide-soffit'][0].tilt).toBeCloseTo(parts['slide-bed'][0].tilt);
+  });
+
+  it('leaves the plinth out rather than turning it inside out', () => {
+    // A box of negative height is a box inside out, and a chute falling to the floor
+    // from barely above it leaves no room for one.
+    for (const plinth of slideParts(built(CHUTE))['slide-plinth'] ?? []) {
+      expect(plinth.halfHeight).toBeGreaterThan(0);
+    }
+  });
+
+  it('holds for every chute in the shipped stages', () => {
+    for (const stage of STAGES) {
+      const parts = slideParts(new TileMap(stageLayers(stage), { build: true }));
+      if (parts['slide-bed']) expectStoneUnderIce(parts, stage.id);
+    }
   });
 });

@@ -122,6 +122,18 @@
         resize: vertical;
         tab-size: 1;
       }
+      /* Says where Save puts things. The music editor gets this into a label, because
+         its one name field is full width; here the fields sit two to a row and a label
+         that long would wrap into the box below it. */
+      .note {
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.4;
+        margin-top: -4px;
+      }
+      .note code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
       #grid {
         min-height: 260px;
         flex: 1 1 auto;
@@ -237,8 +249,9 @@
       </header>
 
       <div class="row">
-        <select id="stage-picker" aria-label="Load an existing stage"></select>
-        <button id="copy" type="button">Copy stage</button>
+        <select id="stage-picker" aria-label="Open a stage, or start a new one"></select>
+        <button id="save" type="button">Save</button>
+        <button id="discard" type="button">Discard</button>
       </div>
 
       <div class="row">
@@ -248,6 +261,11 @@
         </div>
       </div>
       <div><label for="field-hint">hint</label><input id="field-hint" /></div>
+      <p class="note">
+        Save writes this stage into <code>src/levels.js</code>, under the id above —
+        replacing the stage already declared there, or adding it to
+        <code>STAGES</code> if there is none.
+      </p>
 
       <div style="display: flex; flex-direction: column; flex: 1 1 auto">
         <label for="grid">grid — one character per tile, <code>---</code> starts a layer</label>

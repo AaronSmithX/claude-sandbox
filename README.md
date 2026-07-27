@@ -73,10 +73,12 @@ stage back. `src/stage-scene.js` owns the loading and unloading, so what a stage
 builds and what it merely borrows (the player, the sparks) is stated in one place.
 
 Stages live in `src/levels.js` as rows of legend characters — content only. Adding
-one is a data change: append a `{ id, name, hint, rows }` entry, plus an `upper`
-array of further grids if it needs a deck over something, and
-`test/levels.test.js` will hold the new map to the same checks as the rest (one
-spawn, a reachable star, a key for every door, no switch that can seal you in).
+one is a data change: a `{ id, name, hint, rows }` entry, plus an `upper` array of
+further grids if it needs a deck over something. The [level
+editor](#the-level-editor) writes that entry for you and registers it, so a new stage
+need not be typed into the file by hand; either way `test/levels.test.js` holds the new
+map to the same checks as the rest (one spawn, a reachable star, a key for every door,
+no switch that can seal you in).
 
 The characters are a *dialect*, not the vocabulary. What a mechanic actually claims is
 a name — `key:gold`, `switch:red/pressed`, `floor:2` — and `src/glyphs.js` binds the
@@ -288,9 +290,40 @@ the level itself is on the right, rebuilt a quarter of a second after you stop t
   with is a level CI will be happy with.
 - **Play** walks the level with the real simulation — the same `tickWorld` the game
   runs. Escape stops. In look mode the mouse orbits and scrolls to zoom.
-- **Copy stage** puts the whole `const` on the clipboard, quoted and indented the way
-  `src/levels.js` already is; paste it in and add it to `STAGES`. The draft in the
-  boxes survives a reload, and the dropdown opens any shipped stage to start from.
+- **The dropdown** is where a draft comes from: **New stage** for a small blank level
+  that already walks, or any stage on disk to start from one that exists. Either way it
+  asks first if the boxes hold anything unsaved.
+- **Save** writes the stage into `src/levels.js` under the id in the box — replacing
+  the declaration already there, or adding one and putting it at the end of `STAGES` if
+  there is none. The paragraph above an existing stage is left alone; only the `const`
+  itself is rewritten, so the prose about what the stage teaches survives being edited
+  from the browser. A map the tile parser refuses is not written at all, and the toast
+  says why; a map that parses but still fails a check is written, and the toast says
+  that too.
+- **Discard** throws away the draft in the boxes. If its id is a stage that exists on
+  disk it goes back to that stage; otherwise it goes back to a blank one. This is the
+  way out of a local draft you no longer want — the boxes otherwise survive a reload,
+  which is usually what you want and occasionally exactly not.
+- Renaming the `id` and saving **adds** a stage rather than renaming one: the editor
+  cannot tell that apart from authoring a new map, so it leaves the old declaration for
+  you to delete.
+
+**Making a new level, start to finish:** pick *New stage*, draw it in the grid box,
+give it an `id`, `name` and `hint`, and press Save. That is the whole loop — it is
+declared in `src/levels.js`, added to `STAGES`, and playable in the game on the next
+reload, with no hand-editing at all. `test/levels.test.js` picks it up on its own and
+holds it to the same checks as every shipped stage, so a level the editor is happy with
+is one CI will be happy with. *New stage* hands out a fresh id each time
+(`new-stage`, then `new-stage-2`, …) so a second new level cannot overwrite the first.
+
+Removing a stage, reordering the run, and writing the paragraph above a stage are still
+hand edits to `src/levels.js` — they are prose and ordering decisions, and the editor
+has nothing useful to say about either.
+
+Save needs `npm run dev` to be what is serving the page — the dev server carries a
+small endpoint for it and the built site does not, and there the button falls back to
+putting the `const` on the clipboard. Writing `src/levels.js` reloads the page, since
+the editor imports it; the draft and the toast both survive that.
 
 ### The music editor
 
@@ -308,10 +341,13 @@ after you stop typing.
   about a sixth of a second ahead, so it takes effect within a beat.
 - **The panel** is the parser first — it names the line it gave up on — and
   `src/audio/score-checks.js` underneath.
-- **Save** writes the file, if `npm run dev` is what is serving the page: the dev
-  server carries a small endpoint for it, the built site does not, and there the button
-  falls back to the clipboard. The dropdown opens any shipped score to start from, and
-  the draft survives a reload.
+- **Save** writes `src/audio/scores/<name>.txt`, if `npm run dev` is what is serving the
+  page: the dev server carries a small endpoint for it, the built site does not, and
+  there the button falls back to the clipboard. A first visit opens on a demo score
+  named `new-score`, so an exploratory Save cannot land on the game's theme.
+- **Discard** throws away the draft in the box. If its name is a score that exists on
+  disk it goes back to that score; otherwise it goes back to the demo. The dropdown
+  opens any shipped score to start from, and the draft otherwise survives a reload.
 
 To produce a production build in `dist/`:
 
@@ -422,9 +458,10 @@ site and publishes `dist/` to GitHub Pages.
 | `src/audio/score-checks.js` | The checks a score has to pass, as data — run by the suite over every score and by the music editor over a draft. |
 | `audio-editor.html` | The music editor's page: the score on the left, a piano roll on the right. |
 | `src/audio-editor/draft.js` | Parsing for an editor: a complaint rather than a throw, and the score a first visit opens with. |
+| `src/audio-editor/save-path.js` | Where the music editor may write, and nowhere else. |
 | `src/audio-editor/roll.js` | The piano roll: `layout` is arithmetic and is tested, `paint` draws it. |
 | `src/audio-editor/transport.js` | Play, stop, mute and solo, and taking up a changed score where the old one was. |
-| `src/audio-editor/main.js` | The music editor's wiring: textarea, debounce, problems panel, save. |
+| `src/audio-editor/main.js` | The music editor's wiring: textarea, debounce, problems panel, save and discard. |
 | `src/hud.js` | The inventory bar and the stage label at the top of the screen. |
 | `src/input.js` | Keys → held grid directions, plus mute, retry and leaving the stage. Asks for the player each time, because between stages there isn't one. |
 | `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
@@ -433,18 +470,19 @@ site and publishes `dist/` to GitHub Pages.
 | `src/reach.js` | Flood fill over a parsed map: what can be walked to from the spawn, and which switches can seal you in. |
 | `src/level-checks.js` | The checks a stage has to pass, as data — run by the suite over `STAGES` and by the editor over a draft. |
 | `editor.html` | The level editor's page: text on the left, preview on the right. |
-| `src/editor/draft.js` | The editor's text format, both ways, and the stage literal the copy button produces. |
+| `src/editor/draft.js` | The editor's text format, both ways, and the stage literal Save writes. |
+| `src/editor/levels-source.js` | Putting a stage back into `src/levels.js`: which declaration to replace, and what to refuse. |
 | `src/editor/preview.js` | The editor's viewport: `src/main.js`'s renderer and stage loading, with the campaign left out. |
-| `src/editor/main.js` | The editor's wiring: fields, debounce, problems panel, load and copy. |
+| `src/editor/main.js` | The editor's wiring: fields, debounce, problems panel, load, save and discard. |
 | `test/` | Vitest suite, built on miniature levels. |
 | `src/types.js` | JSDoc shapes shared across the code: a tile, a direction, the world. |
-| `vite.config.js` | Pages base path, both HTML entry points, and the test runner's config. |
+| `vite.config.js` | Pages base path, the three HTML entry points, the test runner's config, and the dev-only endpoints both editors save through. |
 | `tsconfig.json` | Type checking for `src/`; `tsconfig.tests.json` for the suite. |
 
 ## Making it your own
 
 - **Add or redesign a stage:** edit `src/levels.js`, or draw it in the [level
-  editor](#the-level-editor) and paste the result in. Each stage is a
+  editor](#the-level-editor), which writes it back for you. Each stage is a
   `{ id, name, hint, rows }` entry, and `rows` is a grid of characters. The
   characters most stages use are bound in `src/glyphs.js`:
 

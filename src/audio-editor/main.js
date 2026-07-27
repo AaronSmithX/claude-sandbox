@@ -1,6 +1,6 @@
 import { SCORE_SOURCES } from '../audio/index.js';
 import { checkScore } from '../audio/score-checks.js';
-import { parseDraft, offsetOf, STARTER_SCORE } from './draft.js';
+import { parseDraft, offsetOf, discardedScore, STARTER_SCORE, STARTER_NAME } from './draft.js';
 import { layout, paint, hitTest, trackColor } from './roll.js';
 import { Transport } from './transport.js';
 
@@ -18,6 +18,16 @@ import { Transport } from './transport.js';
  */
 
 const STORAGE_KEY = 'tile-runner.audio-editor.draft';
+
+/**
+ * Where a message waits out a reload.
+ *
+ * Saving writes a file under `src/audio/scores/`, which this page imports with `?raw`,
+ * so Vite reloads it a moment later — taking the toast that said the save worked with
+ * it. Handing the sentence to the next page load instead means the one thing Save has
+ * to tell you actually gets told. The level editor does the same, for the same reason.
+ */
+const SAID_KEY = 'tile-runner.audio-editor.said';
 
 /** How long after the last keystroke the score is rebuilt. */
 const REBUILD_DELAY = 250;
@@ -306,7 +316,7 @@ need('save').addEventListener('click', async () => {
       body: JSON.stringify({ name, text: source.value }),
     });
     if (response.ok) {
-      say(`Written to src/audio/scores/${name}.txt`);
+      sayAfterReload(await response.text());
       return;
     }
     // A refusal from an endpoint that is there is worth repeating; anything else falls
@@ -327,6 +337,19 @@ need('save').addEventListener('click', async () => {
   }
 });
 
+need('discard').addEventListener('click', () => {
+  const back = discardedScore(nameField.value, SCORE_SOURCES);
+  const started = back.text === STARTER_SCORE ? 'the starting score' : `“${back.name}” as it is on disk`;
+  if (!confirm(`Throw away the changes in the box and go back to ${started}?`)) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  source.value = back.text;
+  nameField.value = back.name;
+  transport.clearMutes();
+  onEditNow();
+  say('Changes discarded');
+});
+
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let toastTimer;
 /** @param {string} text */
@@ -337,16 +360,34 @@ function say(text) {
   toastTimer = setTimeout(() => toast.classList.remove('is-shown'), 2200);
 }
 
+/**
+ * Says it now, and again on the other side of the reload the save is about to cause —
+ * whichever of the two the author is still here to read.
+ *
+ * @param {string} text
+ */
+function sayAfterReload(text) {
+  try {
+    sessionStorage.setItem(SAID_KEY, text);
+  } catch {
+    // Private browsing can refuse it. The toast below is still shown; it may just be
+    // cut short by the reload.
+  }
+  say(text);
+}
+
 // --- Go ---------------------------------------------------------------------
 
 function restore() {
+  /** The name matters: see `STARTER_NAME`. A first Save must not land on the theme. */
+  const fresh = { name: STARTER_NAME, text: STARTER_SCORE };
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return { name: 'theme', text: STARTER_SCORE };
+  if (!saved) return fresh;
   try {
-    return { name: 'theme', text: STARTER_SCORE, ...JSON.parse(saved) };
+    return { ...fresh, ...JSON.parse(saved) };
   } catch {
     // A draft we cannot read is not worth a broken page.
-    return { name: 'theme', text: STARTER_SCORE };
+    return fresh;
   }
 }
 
@@ -355,3 +396,9 @@ source.value = initial.text;
 nameField.value = initial.name;
 showPlaying();
 rebuild();
+
+const carried = sessionStorage.getItem(SAID_KEY);
+if (carried) {
+  sessionStorage.removeItem(SAID_KEY);
+  say(carried);
+}

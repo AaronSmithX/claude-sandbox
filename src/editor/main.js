@@ -1,7 +1,14 @@
 import { STAGES } from '../levels.js';
 import { GLYPHS } from '../glyphs.js';
 import { checkStage } from '../level-checks.js';
-import { parseDraft, formatDraft, stageSource, STARTER_DRAFT } from './draft.js';
+import {
+  parseDraft,
+  formatDraft,
+  stageSource,
+  discardedDraft,
+  freshDraft,
+} from './draft.js';
+import { LEVELS_FILE } from './levels-source.js';
 import { Preview, LOOK, PLAY } from './preview.js';
 
 /**
@@ -15,8 +22,21 @@ import { Preview, LOOK, PLAY } from './preview.js';
 
 const STORAGE_KEY = 'tile-runner.editor.draft';
 
+/**
+ * Where a message waits out a reload.
+ *
+ * Saving writes `src/levels.js`, which this page imports, so Vite reloads it a moment
+ * later — taking the toast that said the save worked with it. Handing the sentence to
+ * the next page load instead means the one thing Save has to tell you actually gets
+ * told. `sessionStorage` because it should not outlive the tab.
+ */
+const SAID_KEY = 'tile-runner.editor.said';
+
 /** How long after the last keystroke the level is rebuilt. */
 const REBUILD_DELAY = 250;
+
+/** The dropdown entry that starts a stage from nothing, rather than opening one. */
+const NEW = 'new';
 
 /** @param {string} id */
 function need(id) {
@@ -62,15 +82,43 @@ function writeDraft(draft) {
 }
 
 function restore() {
+  const fresh = freshDraft(STAGES);
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return STARTER_DRAFT;
+  if (!saved) return fresh;
   try {
-    return { ...STARTER_DRAFT, ...JSON.parse(saved) };
+    return { ...fresh, ...JSON.parse(saved) };
   } catch {
     // A draft we cannot read is not worth a broken page.
-    return STARTER_DRAFT;
+    return fresh;
   }
 }
+
+/**
+ * Whether the boxes hold anything worth keeping — that is, anything that differs from
+ * what opening the same id again would give you.
+ *
+ * The point of asking is the check, not the dialog. A draft that already matches the
+ * stage on disk, or the blank slate it started from, is not work; confirming it away
+ * every time would teach the habit of dismissing the question, and then it would be
+ * dismissed on the one occasion it mattered.
+ */
+function draftIsUnsaved() {
+  const now = readDraft();
+  const disk = discardedDraft(now.id, STAGES);
+  return !(
+    now.id.trim() === disk.id.trim() &&
+    now.name.trim() === disk.name.trim() &&
+    now.hint.trim() === disk.hint.trim() &&
+    // The grid keeps its leading spaces — an upper layer is made of them — but a
+    // textarea adds a trailing newline that means nothing.
+    now.grid.trimEnd() === disk.grid.trimEnd() &&
+    now.legend.trim() === disk.legend.trim()
+  );
+}
+
+/** @param {string} what the sentence up to the question mark */
+const keepingNothing = (what) =>
+  !draftIsUnsaved() || confirm(`${what}? The changes in these boxes have not been saved.`);
 
 // --- Rebuilding -------------------------------------------------------------
 
@@ -159,29 +207,96 @@ for (const field of Object.values(fields)) {
   field.addEventListener('input', onEdit);
 }
 
-// --- Loading and copying ----------------------------------------------------
+// --- Loading, saving and discarding -----------------------------------------
 
-picker.append(new Option('Load a stage…', '', true, true));
-STAGES.forEach((stage, index) => picker.append(new Option(stage.name, String(index))));
+picker.append(new Option('Open…', '', true, true));
+// "New stage" belongs here rather than on a button of its own: this dropdown is already
+// the answer to "where does the draft in these boxes come from", and starting from
+// nothing is one of the places it can come from.
+picker.append(new Option('New stage', NEW));
+const shipped = document.createElement('optgroup');
+shipped.label = 'On disk';
+STAGES.forEach((stage, index) => shipped.append(new Option(stage.name, String(index))));
+picker.append(shipped);
 
 picker.addEventListener('change', () => {
-  if (picker.value === '') return; // the prompt itself, picked again
-  const stage = STAGES[Number(picker.value)];
-  if (!stage) return;
-  writeDraft(formatDraft(stage));
+  const chosen = picker.value;
   picker.selectedIndex = 0; // it is a verb, not a state
+  if (chosen === '') return; // the prompt itself, picked again
+
+  // `Number(NEW)` is NaN and no array has that index, so the new-stage entry falls
+  // through to `undefined` here without needing a branch of its own.
+  const stage = STAGES[Number(chosen)];
+  if (chosen !== NEW && !stage) return;
+
+  // Opening something else throws away whatever is in the boxes, which is the one
+  // irreversible thing this dropdown does — so it asks, on the same terms Discard does.
+  if (!keepingNothing(`Open ${stage ? `“${stage.name}”` : 'a new stage'}`)) return;
+
+  writeDraft(stage ? formatDraft(stage) : freshDraft(STAGES));
   onEditNow();
   preview.frame(); // a different map wants a different view
 });
 
-need('copy').addEventListener('click', async () => {
-  const { stage } = parseDraft(readDraft());
+need('save').addEventListener('click', async () => {
+  const { stage, problems } = parseDraft(readDraft());
+  if (problems.length) {
+    say('That does not read yet — see the panel');
+    return;
+  }
+
+  // `checkStage` puts "parses" first and, when it fails, puts nothing after it. A map
+  // the tile parser refuses is not a stage, and writing it into `src/levels.js` would
+  // break the game and the suite rather than save any work. Everything softer than
+  // that — an unreachable star, a door with no key — is saved and mentioned, because
+  // a half-built stage is a normal thing to want to keep.
+  const checks = checkStage(stage);
+  if (checks[0].problems.length > 0) {
+    say(`That map will not parse: ${checks[0].problems[0]}`);
+    return;
+  }
+  const unfinished = checks.some((check) => check.problems.length > 0);
+
+  try {
+    const response = await fetch('/__stage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ stage }),
+    });
+    if (response.ok) {
+      const written = await response.text();
+      sayAfterReload(unfinished ? `${written} — the panel still lists problems` : written);
+      return;
+    }
+    // A refusal from an endpoint that is there is worth repeating; anything else falls
+    // through to the clipboard below.
+    if (response.status !== 404) {
+      say(await response.text());
+      return;
+    }
+  } catch {
+    // No dev server — the built page on Pages has no endpoint to write with.
+  }
+
   try {
     await navigator.clipboard.writeText(stageSource(stage));
-    say('Copied — paste it into src/levels.js');
+    say(`Copied — paste it into ${LEVELS_FILE}`);
   } catch {
     say('The browser would not give up the clipboard');
   }
+});
+
+need('discard').addEventListener('click', () => {
+  const back = discardedDraft(fields.id.value, STAGES);
+  const onDisk = STAGES.some((stage) => stage.id === back.id);
+  const started = onDisk ? `“${back.name}” as it is on disk` : 'a blank stage';
+  if (!confirm(`Throw away the changes in these boxes and go back to ${started}?`)) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  writeDraft(back);
+  onEditNow();
+  preview.frame();
+  say('Changes discarded');
 });
 
 /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -192,6 +307,22 @@ function say(text) {
   toast.classList.add('is-shown');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('is-shown'), 2200);
+}
+
+/**
+ * Says it now, and again on the other side of the reload the save is about to cause —
+ * whichever of the two the author is still here to read.
+ *
+ * @param {string} text
+ */
+function sayAfterReload(text) {
+  try {
+    sessionStorage.setItem(SAID_KEY, text);
+  } catch {
+    // Private browsing can refuse it. The toast below is still shown; it may just be
+    // cut short by the reload.
+  }
+  say(text);
 }
 
 preview.onOutcome = (outcome) =>
@@ -279,3 +410,9 @@ for (const [char, name] of Object.entries(GLYPHS)) {
 writeDraft(restore());
 setMode(LOOK);
 rebuild();
+
+const carried = sessionStorage.getItem(SAID_KEY);
+if (carried) {
+  sessionStorage.removeItem(SAID_KEY);
+  say(carried);
+}

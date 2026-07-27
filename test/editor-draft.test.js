@@ -5,6 +5,9 @@ import {
   formatDraft,
   serializeStage,
   stageSource,
+  discardedDraft,
+  freshDraft,
+  constantFor,
   STARTER_DRAFT,
 } from '../src/editor/draft.js';
 import { checkStage } from '../src/level-checks.js';
@@ -135,6 +138,81 @@ describe('serializing a stage', () => {
     const stage = { id: 'first-steps', name: 'First Steps', hint: 'H', rows: ['#@*#'] };
     expect(stageSource(stage)).toMatch(/^\/\*\* @type \{Stage\} \*\/\nconst FIRST_STEPS = \{/);
     expect(stageSource(stage).trimEnd()).toMatch(/\};$/);
+  });
+});
+
+describe('starting a new stage', () => {
+  const named = (...ids) => ids.map((id) => ({ id, name: id, hint: '', rows: ['#@*#'] }));
+
+  it('is the opening draft when nothing on disk is using its id', () => {
+    expect(freshDraft(FIXTURES)).toBe(STARTER_DRAFT);
+    expect(freshDraft([])).toBe(STARTER_DRAFT);
+  });
+
+  it('is a level that already works, so the editor does not open on red', () => {
+    const { stage, problems } = parseDraft(freshDraft([]));
+    expect(problems).toEqual([]);
+    expect(checkStage(stage).filter((c) => c.problems.length > 0)).toEqual([]);
+  });
+
+  it('steps the id aside once a stage has been saved under it', () => {
+    // Save tells "replace this stage" from "add one" by the id alone, so handing out
+    // `new-stage` twice would mean the second level quietly overwrote the first.
+    const next = freshDraft(named('new-stage'));
+    expect(next.id).toBe('new-stage-2');
+    expect(next.name).toBe('New Stage 2');
+  });
+
+  it('keeps stepping aside, however many have been saved', () => {
+    expect(freshDraft(named('new-stage', 'new-stage-2')).id).toBe('new-stage-3');
+    expect(freshDraft(named('new-stage', 'new-stage-2', 'new-stage-3')).id).toBe('new-stage-4');
+  });
+
+  it('fills the gap rather than counting past it', () => {
+    expect(freshDraft(named('new-stage', 'new-stage-3')).id).toBe('new-stage-2');
+  });
+
+  it('always names an id a stage may be saved under', () => {
+    // The id becomes a JavaScript identifier, and `levels-source.js` refuses anything
+    // that is not lower case, digits and dashes. A generated one must not be refused.
+    for (let taken = 0; taken < 12; taken++) {
+      const ids = Array.from({ length: taken }, (_, i) => (i ? `new-stage-${i + 1}` : 'new-stage'));
+      expect(freshDraft(named(...ids)).id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+    }
+  });
+});
+
+describe('discarding', () => {
+  it('goes back to the stage on disk when the draft is an edit of one', () => {
+    const [shipped] = FIXTURES;
+    expect(discardedDraft(shipped.id, FIXTURES)).toEqual(formatDraft(shipped));
+  });
+
+  it('ignores space either side of the id, which a field collects easily', () => {
+    expect(discardedDraft(`  ${FIXTURES[0].id} `, FIXTURES)).toEqual(formatDraft(FIXTURES[0]));
+  });
+
+  it('goes back to a blank stage when the id is not one on disk', () => {
+    // A stage being authored has nothing behind it to restore, so Discard means the
+    // beginning rather than someone else's map.
+    expect(discardedDraft('never-shipped', FIXTURES)).toBe(STARTER_DRAFT);
+    expect(discardedDraft('', FIXTURES)).toBe(STARTER_DRAFT);
+  });
+
+  it('does not hand back an id another stage is already using', () => {
+    const saved = [...FIXTURES, { id: 'new-stage', name: 'N', hint: '', rows: ['#@*#'] }];
+    expect(discardedDraft('never-shipped', saved).id).toBe('new-stage-2');
+  });
+});
+
+describe('the name a stage is declared under', () => {
+  it('is the id, shouted — which is how every shipped stage is already written', () => {
+    expect(constantFor('first-steps')).toBe('FIRST_STEPS');
+    expect(constantFor('two-places')).toBe('TWO_PLACES');
+  });
+
+  it('falls back to a name rather than nothing when there is no id yet', () => {
+    expect(constantFor('')).toBe('NEW_STAGE');
   });
 });
 

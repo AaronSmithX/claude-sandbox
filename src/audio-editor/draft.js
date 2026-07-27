@@ -59,6 +59,36 @@ track hats
   | x/8 -/8 x/8 -/8 x/8 x/16 x/16 x/8 x/8 |
 `;
 
+/**
+ * The name the starter score is offered under.
+ *
+ * It matters that this is not the name of a shipped score. The editor opens on
+ * `STARTER_SCORE`, and Save writes whatever is in the name field — so a default of
+ * `theme` would make the very first Save, before anything has been loaded, quietly
+ * replace the game's music with the demo.
+ */
+export const STARTER_NAME = 'new-score';
+
+/**
+ * What Discard goes back to: the score as it is on disk, if the draft is an edit of
+ * one, and the opening score if it is not.
+ *
+ * The same distinction `src/editor/draft.js` draws for a stage. Throwing away edits to
+ * `theme` should leave `theme` on the screen; throwing away a score that was never
+ * loaded from anywhere has nothing to leave but the beginning.
+ *
+ * @param {string} name the name currently in the box
+ * @param {Record<string, string>} sources what is on disk, by name
+ * @returns {{name: string, text: string}}
+ */
+export function discardedScore(name, sources) {
+  const wanted = name.trim();
+  // `hasOwn` rather than a truthiness check: `sources['constructor']` is not undefined,
+  // and a name field is a place someone can type that.
+  if (!Object.hasOwn(sources, wanted)) return { name: STARTER_NAME, text: STARTER_SCORE };
+  return { name: wanted, text: sources[wanted] };
+}
+
 /** @param {unknown} error */
 const message = (error) => (error instanceof Error ? error.message : String(error));
 
