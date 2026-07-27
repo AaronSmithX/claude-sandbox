@@ -1,6 +1,7 @@
 import { TileMap } from '../../src/tilemap.js';
 import { Player } from '../../src/player.js';
 import { Enemies } from '../../src/enemy.js';
+import { Blocks } from '../../src/blocks.js';
 import { Inventory } from '../../src/inventory.js';
 import { tickWorld } from '../../src/world.js';
 
@@ -32,7 +33,14 @@ export function makeGame(rows, { enemies: enemyOptions } = {}) {
   const inventory = new Inventory();
   const player = new Player(tilemap, inventory);
   const enemies = new Enemies(tilemap, enemyOptions);
-  return { tilemap, player, enemies, inventory };
+  const blocks = new Blocks(tilemap);
+
+  // Wired exactly as main.js wires it: the map asks who is standing where, and the
+  // player is the only thing that pushes.
+  tilemap.occupants = () => [{ tile: player.tile }, ...blocks.occupants()];
+  player.blocks = blocks;
+
+  return { tilemap, player, enemies, inventory, blocks };
 }
 
 export const FRAME = 1 / 60;
@@ -71,10 +79,17 @@ export function step(game, dx, dz) {
   const accepted = game.player.gx !== before.gx || game.player.gz !== before.gz;
 
   const LIMIT = 600; // ten seconds of frames: a slide always ends long before
+  const busy = () =>
+    game.player.isMoving ||
+    game.player.isSliding ||
+    (game.blocks?.list.some((block) => block.isMoving) ?? false);
+
   for (let frame = 0; frame < LIMIT; frame++) {
-    if (!game.player.isMoving && !game.player.isSliding) break;
+    if (!busy()) break;
     tickWorld(game, FRAME);
   }
+  // One frame at rest, so the plates and gates have read where everything landed.
+  tickWorld(game, FRAME);
   return accepted;
 }
 

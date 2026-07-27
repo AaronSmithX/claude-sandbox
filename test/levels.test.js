@@ -73,13 +73,24 @@ for (const stage of STAGES) {
       }
     });
 
-    it('gives every door a wall to span', () => {
+    it('has a plate somewhere for every gate', () => {
+      const map = parse(stage);
+      for (const gate of tilesOfType(map, 'gate')) {
+        const plates = tilesOfType(map, 'plate').filter((t) => t.color === gate.color);
+        expect(
+          plates.length,
+          `the ${gate.color} gate at ${gate.gx},${gate.gz} has no plate to hold it`,
+        ).toBeGreaterThan(0);
+      }
+    });
+
+    it('gives every door and gate a wall to span', () => {
       const map = parse(stage);
       const solid = (gx, gz) => {
         const t = map.get(gx, gz);
         return !t || t.type === 'wall';
       };
-      for (const door of tilesOfType(map, 'door')) {
+      for (const door of [...tilesOfType(map, 'door'), ...tilesOfType(map, 'gate')]) {
         const acrossX = solid(door.gx - 1, door.gz) && solid(door.gx + 1, door.gz);
         const acrossZ = solid(door.gx, door.gz - 1) && solid(door.gx, door.gz + 1);
         expect(

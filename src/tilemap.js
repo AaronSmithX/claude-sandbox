@@ -31,6 +31,10 @@ export const SWITCH_COLORS = {
  *   E e  elevator — a platform running between the floors beside it, starting at
  *        the top (E) or the bottom (e), so a pair of them can pass each other
  *
+ *   B    a crate: pushable, one tile at a time, and only from behind
+ *   p q r  pressure plates — red, cyan, pink
+ *   P Q R  the gate each one holds open, of the same colour
+ *
  * A map can also be several grids deep, ground first, which is what a bridge needs:
  * a deck on the layer above the water it crosses. A space means "nothing here" —
  * the usual case above the ground, and a hole in it down below.
@@ -45,6 +49,10 @@ export const SWITCH_COLORS = {
  *
  *   | -     enemy patrolling vertically / horizontally (reverses when blocked)
  *   ) (     enemy turning clockwise / anticlockwise when blocked
+ *
+ * A plate is held down by anything standing on it — you or a crate — and its gate is
+ * open for exactly as long as one of its plates is held. Standing in a gateway also
+ * holds that gate open, so stepping off the last plate can never shut a gate on you.
  *
  * Obstacles belong to group A (uppercase) or group B (lowercase). Stepping on a
  * switch swaps which group of its colour is raised, so one press both opens and
@@ -69,6 +77,17 @@ export const LEGEND = {
   '\\': { type: 'slide' },
   E: { type: 'elevator', startUp: true },
   e: { type: 'elevator' },
+  // A crate stands on ordinary floor: the tile is the floor, the crate is a thing
+  // on top of it that moves.
+  B: { type: 'floor', block: true },
+  // Plates and the gates they hold open. Uppercase blocks you, lowercase does not —
+  // the same convention the columns and their switches follow.
+  p: { type: 'plate', color: 'red' },
+  q: { type: 'plate', color: 'cyan' },
+  r: { type: 'plate', color: 'pink' },
+  P: { type: 'gate', color: 'red' },
+  Q: { type: 'gate', color: 'cyan' },
+  R: { type: 'gate', color: 'pink' },
   '@': { type: 'spawn' },
   '*': { type: 'star' },
   O: { type: 'tube' },
@@ -142,6 +161,15 @@ const same = (a, b) => Math.abs(a - b) < 1e-6;
 // second of standing still at each end is room enough to get on and off.
 export const ELEVATOR_PERIOD = 4;
 
+// A pressure plate's face, up and held down. Shallower than a button: a plate is a
+// flagstone that gives a little, not something with a click in it.
+const PLATE_UP_Y = 0.05;
+const PLATE_DOWN_Y = 0.015;
+
+// A gate's bars: standing in the doorway, or dropped into the floor out of the way.
+const GATE_SHUT_Y = 0.5;
+const GATE_OPEN_Y = -0.55;
+
 // Floor buttons: the grey plate they sit on, and the button's height when up and
 // when pressed.
 const SWITCH_BASE_SIZE = TILE_SIZE * 0.78;
@@ -188,6 +216,16 @@ export class TileMap {
      */
     this.onEvent = null;
 
+    /**
+     * Who is standing on the map right now — the player, and any crates. Set by
+     * whoever wires the world together; the map asks rather than holding references,
+     * so it stays a thing that knows rules and not a thing that knows the cast.
+     *
+     * Plates read this, and so does anything that has to treat a crate as solid.
+     * @type {() => {tile: import('./types.js').Tile, isBlock?: boolean}[]}
+     */
+    this.occupants = () => [];
+
     this._elapsed = 0;
     this._parse();
     if (build) this._build();
@@ -206,6 +244,12 @@ export class TileMap {
     this.columns = [];
     /** @type {{gx: number, gz: number, pattern: string}[]} */
     this.enemySpawns = [];
+    /** @type {{gx: number, gz: number, layer: number}[]} */
+    this.blockSpawns = [];
+    /** @type {import('./types.js').Tile[]} */
+    this._plates = [];
+    /** @type {import('./types.js').Tile[]} */
+    this._gates = [];
     // Kept flat, because pressing a switch has to reach every other switch of
     // its colour wherever it is on the map.
     /** @type {import('./types.js').Tile[]} */
@@ -242,6 +286,7 @@ export class TileMap {
           if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
           if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
           if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
+          if (def.block) this.blockSpawns.push({ gx: x, gz: z, layer });
 
           // A layer sets the height, and a character can add to it: `'` on the
           // deck layer is one level above the deck.
@@ -256,6 +301,8 @@ export class TileMap {
           };
           if (tile.type === 'switch') this._switches.push(tile);
           if (tile.type === 'elevator') this._elevators.push(tile);
+          if (tile.type === 'plate') this._plates.push(tile);
+          if (tile.type === 'gate') this._gates.push(tile);
 
           this.columns[z][x].push(tile);
           if (layer === 0) this.tiles[z][x] = tile;
@@ -512,6 +559,16 @@ export class TileMap {
     return tile;
   }
 
+  /**
+   * The crate standing on a tile, if there is one. Crates are solid to everything
+   * except a deliberate push from directly behind.
+   * @param {?import('./types.js').Tile} tile
+   */
+  blockOn(tile) {
+    if (!tile) return false;
+    return this.occupants().some((o) => o.isBlock && o.tile === tile);
+  }
+
   /** Everything stacked in one cell, ground first. Empty off the map. */
   column(gx, gz) {
     if (gz < 0 || gz >= this.rows || gx < 0 || gx >= this.cols) return [];
@@ -539,6 +596,7 @@ export class TileMap {
     const t = this.get(gx, gz);
     if (!t) return false;
     if (t.type === 'wall' || t.type === 'water' || t.type === 'door') return false;
+    if (t.type === 'gate') return false; // like a door: a patrol stays in its room
     if (RAMPS.has(t.type) || t.type === 'elevator') return false;
     if (t.type === 'obstacle') return !this.isRaised(t);
     return true;
@@ -675,6 +733,8 @@ export class TileMap {
   slideFrom(from, dx, dz, inventory) {
     const to = this.stepTarget(from, dx, dz);
     if (!to || (to.type === 'door' && !to.open)) return null;
+    // Out of control is no way to shift a crate: you stop against it.
+    if (this.blockOn(to)) return null;
     return this.canEnterTile(to, inventory) ? to : null;
   }
 
@@ -689,6 +749,7 @@ export class TileMap {
     const from = this.get(fromGx, fromGz);
     const to = this.get(toGx, toGz);
     if (!from || !to || RAMPS.has(from.type)) return false;
+    if (this.blockOn(to)) return false; // a crate is a wall to a patrol
     return same(from.level, to.level);
   }
 
@@ -724,8 +785,39 @@ export class TileMap {
         return t.open || inventory.keyCount(t.color) > 0;
       case 'obstacle':
         return !this.isRaised(t);
+      case 'gate':
+        return t.open === true;
       default:
         return true;
+    }
+  }
+
+  /**
+   * Whether a crate may be pushed onto a tile. Deliberately a short list rather than
+   * "everything the player may walk on": a crate on a switch would hold it down for
+   * ever, a crate on a key would hide it, and a crate on a ramp or a platform is not
+   * a thing this game knows how to draw. Nothing here can be spent or triggered by a
+   * crate, so a push can never do something a step would have to be asked for.
+   *
+   * @param {?import('./types.js').Tile} tile
+   */
+  canBlockEnter(tile) {
+    if (!tile || this.blockOn(tile)) return false;
+    switch (tile.type) {
+      case 'floor':
+      case 'spawn':
+      case 'ice':
+      case 'plate':
+        return true;
+      case 'obstacle':
+        return !this.isRaised(tile);
+      case 'door':
+      case 'gate':
+        // Already open only: a crate cannot spend a key, and a gate that is held
+        // open by the crate's own plate is a puzzle, not a bug.
+        return tile.open === true;
+      default:
+        return false;
     }
   }
 
@@ -847,6 +939,12 @@ export class TileMap {
         t.button.material.color.copy(down ? t.downColor : t.idleColor);
         t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
       }
+      if (t.type === 'plate') t.pressed = false;
+      if (t.type === 'gate') {
+        t.open = false;
+        if (t.bars) t.bars.position.y = t.baseY + GATE_SHUT_Y;
+      }
+      if (t.plateTop) t.plateTop.position.y = t.baseY + PLATE_UP_Y;
       if (t.type === 'elevator') {
         t.level = (t.startUp ? t.high : t.low) ?? t.level;
         if (t.platform) t.platform.position.y = this.heightOf(t);
@@ -877,6 +975,8 @@ export class TileMap {
     // Doors get a faster factor: the panel has one 0.14s step to clear the
     // doorway the player is already walking into.
     const kDoor = 1 - Math.pow(0.00002, dt);
+
+    this._applyPressure();
 
     // Platforms are game state, not decoration: where one is decides what it is
     // joined to, so this runs before anything asks to move. tickWorld already
@@ -916,6 +1016,28 @@ export class TileMap {
         if (t.spinner) t.spinner.rotation.y += dt * 1.4;
       }
 
+    }
+  }
+
+  /**
+   * Reads the plates, and opens the gates they hold.
+   *
+   * This is state, not decoration, like a platform's height: it runs at the top of
+   * the frame, from where everything stands at that moment, so a gate is open for
+   * exactly as long as something is on a plate of its colour — plus as long as
+   * something is standing in the gateway, which is what stops a gate ever shutting on
+   * whoever let the plate go.
+   */
+  _applyPressure() {
+    if (!this._plates.length && !this._gates.length) return;
+    const standing = this.occupants();
+    const held = (tile) => standing.some((o) => o.tile === tile);
+
+    for (const plate of this._plates) plate.pressed = held(plate);
+
+    for (const gate of this._gates) {
+      const anyPlate = this._plates.some((p) => p.color === gate.color && p.pressed);
+      gate.open = anyPlate || held(gate);
     }
   }
 
@@ -1103,6 +1225,57 @@ export class TileMap {
         columns.position.set(world.x, world.y + COLUMN_RAISED_Y, world.z);
         tile.columns = columns;
         return columns;
+      }
+
+      case 'plate': {
+        const group = new THREE.Group();
+        group.position.set(world.x, world.y, world.z);
+
+        // A recess, so a plate reads as set into the floor rather than dropped on it.
+        const recess = new THREE.Mesh(
+          new THREE.BoxGeometry(TILE_SIZE * 0.9, 0.05, TILE_SIZE * 0.9),
+          new THREE.MeshStandardMaterial({ color: 0x2b3240, roughness: 0.9 }),
+        );
+        recess.position.y = 0.012;
+        recess.receiveShadow = true;
+        group.add(recess);
+
+        const face = new THREE.Mesh(
+          new THREE.BoxGeometry(TILE_SIZE * 0.78, 0.06, TILE_SIZE * 0.78),
+          this._litMaterial(SWITCH_COLORS[tile.color ?? 'red'], 0.35),
+        );
+        face.position.y = PLATE_UP_Y;
+        face.receiveShadow = true;
+        group.add(face);
+
+        tile.plateTop = face;
+        tile.mesh = group;
+        return group;
+      }
+
+      case 'gate': {
+        const group = new THREE.Group();
+        group.position.set(world.x, world.y, world.z);
+        const material = this._litMaterial(SWITCH_COLORS[tile.color ?? 'red'], 0.3);
+
+        // The bars ride in a group so the whole set can drop into the floor.
+        const bars = new THREE.Group();
+        bars.position.y = GATE_SHUT_Y;
+        for (const offset of [-0.3, 0, 0.3]) {
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.94, 0.12), material);
+          bar.position.x = offset;
+          bar.castShadow = true;
+          bars.add(bar);
+        }
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.12, 0.16), material);
+        head.position.y = 0.46;
+        bars.add(head);
+        group.add(bars);
+        group.rotation.y = this._doorFacing(tile);
+
+        tile.bars = bars;
+        tile.mesh = group;
+        return group;
       }
 
       case 'switch': {

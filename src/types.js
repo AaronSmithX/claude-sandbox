@@ -33,6 +33,7 @@
  * @property {string} [enemy]   patrol pattern, when the tile is a spawn for one
  * @property {boolean} [startPressed]  a switch that begins held down
  * @property {boolean} [startUp]       a platform that begins at the top
+ * @property {boolean} [block]         a crate stands here when the stage loads
  *
  * @property {boolean} [taken]   a pickup that has been collected
  * @property {boolean} [open]    a door that has been opened
@@ -52,6 +53,8 @@
  * @property {any} [columns]     an obstacle's four posts
  * @property {any} [button]      a switch's button
  * @property {any} [platform]    an elevator's moving plate
+ * @property {any} [bars]        a gate's bars, which drop into the floor when open
+ * @property {any} [plateTop]    a pressure plate's face
  * @property {any} [spinner]     a pickup's turning group
  * @property {number} [bobBase]  the height a pickup bobs about
  * @property {any} [idleColor]
@@ -76,6 +79,7 @@
  * @property {import('./enemy.js').Enemies} enemies
  * @property {import('./inventory.js').Inventory} inventory
  * @property {import('./particles.js').Particles} [particles]
+ * @property {import('./blocks.js').Blocks} [blocks]
  */
 
 export {};

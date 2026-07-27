@@ -32,7 +32,7 @@ to begin before the page has been interacted with.
 
 ## Stages
 
-The game is a short run of stages, played in order from the title screen: six that
+The game is a short run of stages, played in order from the title screen: seven that
 each introduce one thing, then the original single level as the finale with
 everything on it at once.
 
@@ -44,6 +44,7 @@ everything on it at once.
 | **Up and Over** | A stair up, a walkway round, and a chute down into the star's pen. |
 | **Over and Under** | A bridge over a river, and the same river swum underneath it. |
 | **Going Up** | An elevator, and the waiting that comes with one. |
+| **Heavy Lifting** | A crate, the plate it has to end up on, and the gate that opens. |
 | **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
 
 Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
@@ -74,6 +75,9 @@ corner says which stage you are on.
 | **Slides** | A chute. You can only get on at the top, and once you do you ride it to the bottom — there is no walking back up one. |
 | **Bridges** | A deck one level up, in the same square as whatever it crosses. Walk over the top, or go underneath — the water below is still water. |
 | **Elevators** | A platform that runs between the floors beside it on its own clock. It pauses at each end long enough to step on and off, and joins nothing at all while it is moving. |
+| **Crates** | Push one by walking into it. It goes one tile, away from you, and never comes back towards you — so a crate shoved into a corner stays there. |
+| **Plates** (red, cyan, pink) | Held down by anything standing on it: you, or a crate. |
+| **Gates** | Open for exactly as long as a plate of their colour is held. A crate on the plate is what lets you be somewhere else. |
 | **Star** | Reaching it clears the stage. |
 | **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one restarts the stage. |
 
@@ -122,6 +126,24 @@ the floors around it to learn which storeys it serves, then runs between them on
 four-second cycle — dwell, rise, dwell, fall. While it is moving it is joined to
 nothing, so you can neither board it nor step off; while it is parked it is simply
 floor at that storey. Standing on one carries you, and the camera goes up with you.
+
+### Crates, plates and gates
+
+A crate moves one tile per shove, in the direction you walked, and only if the tile
+beyond it will take one — floor, ice, a plate, or a doorway that is already open.
+Nothing a crate lands on can be triggered or spent by it: no keys collected, no
+switches held down for ever, no stars sat on. On ice a shoved crate keeps going, the
+same way you do.
+
+Crates are never pulled, so a crate can be put somewhere it cannot come back from.
+That is the puzzle — **R** restarts the stage, and is meant to be used.
+
+A **plate** is held down by whatever stands on it, and its **gate** is open for
+exactly as long as one of its plates is held. That is the whole mechanic: you cannot
+hold a plate down and be at the gate at the same time, so something else has to do
+the holding. Standing in a gateway also holds that gate open, so letting go of the
+last plate can never shut a gate on you. Patrols treat a gate like a door — closed
+either way — and a crate like a wall.
 
 ### Enemies
 
@@ -279,6 +301,7 @@ site and publishes `dist/` to GitHub Pages.
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
 | `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
 | `src/inventory.js` | What the player is carrying. |
+| `src/blocks.js` | Pushable crates: where they are, and what a shove may do. |
 | `src/particles.js` | Pooled star sparks for pickups. |
 | `src/audio/score.js` | The text score format and its parser. |
 | `src/audio/synth.js` | Web Audio voices and the lookahead scheduler. |
@@ -307,6 +330,8 @@ site and publishes `dist/` to GitHub Pages.
   '  floor one level up      "  floor two levels up
   /  stair    \  slide (a chute)
   E e  elevator, starting at the top / at the bottom
+  B    a pushable crate
+  p q r  pressure plates    P Q R  the gate each colour opens
 
   g v w   keys  — gold, violet, white
   G V W   doors — gold, violet, white

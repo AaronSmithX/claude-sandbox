@@ -166,6 +166,30 @@ const GOING_UP = {
 };
 
 /**
+ * A crate, a plate and the gate it holds. You cannot hold the plate down yourself and
+ * be at the gate at the same time, so the crate has to do it — five shoves east along
+ * the top corridor, and not one more: past the plate there is nowhere to stand to push
+ * it back, and the stage is over. That is the shape of every crate puzzle, and it is
+ * why R exists.
+ *
+ * @type {Stage}
+ */
+const HEAVY_LIFTING = {
+  id: 'heavy-lifting',
+  name: 'Heavy Lifting',
+  hint: 'A <b>crate</b> only moves away from you. A <b>plate</b> holds its gate open.',
+  rows: [
+    '###########',
+    '#@.B....p.#',
+    '#.#######.#',
+    '#.........#',
+    '#.###P###.#',
+    '#####*#####',
+    '###########',
+  ],
+};
+
+/**
  * The original single-level game, kept whole as the finale: nine rooms on a 16x16
  * grid, chained so every mechanic sits on the critical path — ice corridor ->
  * gold door -> inner tube -> red switch -> pink switch -> white key -> violet
@@ -205,6 +229,7 @@ export const STAGES = [
   UP_AND_OVER,
   OVER_AND_UNDER,
   GOING_UP,
+  HEAVY_LIFTING,
   THE_GAUNTLET,
 ];
 

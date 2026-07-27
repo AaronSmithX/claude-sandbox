@@ -5,6 +5,7 @@ import { Campaign } from './campaign.js';
 import { Particles } from './particles.js';
 import { Player } from './player.js';
 import { Enemies } from './enemy.js';
+import { Blocks } from './blocks.js';
 import { Inventory } from './inventory.js';
 import { setupHud } from './hud.js';
 import { setupInput } from './input.js';
@@ -70,6 +71,9 @@ scene.add(player.mesh);
 let enemies = new Enemies(tilemap);
 scene.add(enemies.group);
 
+let blocks = new Blocks(tilemap);
+scene.add(blocks.group);
+
 const cameraFollow = new CameraFollow(camera, player.mesh, {
   groundY: () => player.elevation,
 });
@@ -77,7 +81,7 @@ const cameraFollow = new CameraFollow(camera, player.mesh, {
 // The simulation itself lives in world.js so the tests can drive exactly what
 // ships; this object is mutated in place as stages come and go, so the render loop
 // below never has to know a stage changed.
-const world = { tilemap, player, enemies, inventory, particles };
+const world = { tilemap, player, enemies, inventory, particles, blocks };
 
 // --- Sound ------------------------------------------------------------------
 const audio = createAudio();
@@ -112,6 +116,7 @@ const hintText = document.getElementById('hint-text');
 player.onFirstMove = () => document.body.classList.add('has-moved');
 player.onStep = () => audio.sfx('footstep');
 player.onSlideStart = () => audio.sfx('slide');
+player.onPush = () => audio.sfx('switch');
 
 // --- Overlays ---------------------------------------------------------------
 const overlays = {
@@ -162,20 +167,31 @@ function loadStage(stage) {
   tilemap.dispose();
   scene.remove(enemies.group);
   enemies.dispose();
+  scene.remove(blocks.group);
+  blocks.dispose();
 
   tilemap = new TileMap(stageLayers(stage));
   scene.add(tilemap.group);
   enemies = new Enemies(tilemap);
   scene.add(enemies.group);
+  blocks = new Blocks(tilemap);
+  scene.add(blocks.group);
+
+  // What holds a plate down: whoever is standing on it. The map asks rather than
+  // holding references, so this is the one place the cast is named.
+  tilemap.occupants = () => [{ tile: player.tile }, ...blocks.occupants()];
+  player.blocks = blocks;
 
   tilemap.onWin = () => campaign.completeStage();
   tilemap.onEvent = onTileEvent;
 
   world.tilemap = tilemap;
   world.enemies = enemies;
+  world.blocks = blocks;
 
   inventory.reset();
   particles.reset();
+  blocks.reset();
   player.setTilemap(tilemap);
   cameraFollow.snap();
 

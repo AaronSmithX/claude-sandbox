@@ -12,14 +12,17 @@
  * @returns {{died?: boolean}} events for the caller to render
  */
 export function tickWorld(world, dt) {
-  const { tilemap, player, enemies, inventory, particles } = world;
+  const { tilemap, player, enemies, inventory, particles, blocks } = world;
 
   // A finished level keeps animating — tweens still settle, pickups still bob —
   // but nothing can advance the game any further.
   const frozen = inventory.won || inventory.dead;
 
+  // The map goes first: it is where a platform's height and a gate's state are
+  // settled for the frame, from where everything stands at the start of it.
   tilemap.update(dt);
   player.update(dt); // may fire tilemap.onEnter mid-frame, on arrival
+  blocks?.update(dt);
   enemies.update(dt, frozen);
   particles?.update(dt);
 

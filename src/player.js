@@ -37,6 +37,14 @@ export class Player {
     this.onStep = null;
     // Fired when a slide begins, so it can be heard.
     this.onSlideStart = null;
+    // Fired when a crate is shoved, so that can be heard too.
+    this.onPush = null;
+    /**
+     * The crates on this stage — what a step into an occupied tile can shove. Set by
+     * whoever wires the world up; a stage without crates leaves it null.
+     * @type {?import('./blocks.js').Blocks}
+     */
+    this.blocks = null;
     this._hasMoved = false;
 
     const spawn = tilemap.findSpawn();
@@ -255,6 +263,15 @@ export class Player {
       ? this.tilemap.slideFrom(from, dx, dz, this.inventory)
       : this.tilemap.stepFrom(from, dx, dz, this.inventory);
     if (!to) return false;
+
+    // A crate in the way is not a wall: it is a shove, and the step only happens if
+    // the shove does. Pushing is deliberate — a slide stops against a crate instead,
+    // which slideFrom has already taken care of.
+    const block = this.blocks?.at(to) ?? null;
+    if (block) {
+      if (!block.push([dx, dz])) return false;
+      this.onPush?.();
+    }
 
     // Doors open on the way in, spending the matching key.
     this.tilemap.openDoor(to.gx, to.gz, this.inventory, to.layer);

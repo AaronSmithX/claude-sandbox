@@ -252,6 +252,49 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
+  it('solves Heavy Lifting by parking the crate on the plate', () => {
+    const game = makeGame(stage('heavy-lifting'));
+    const gate = game.tilemap.get(5, 4);
+    const plate = game.tilemap.get(8, 1);
+
+    // The gate is shut, and standing on the plate yourself is no help: you cannot be
+    // in two places at once, which is what the crate is for.
+    expect(gate.open).toBe(false);
+
+    walk(game, times(6, EAST)); // one step, then five shoves
+    expect(at(game)).toEqual({ gx: 7, gz: 1 });
+    expect(game.blocks.list[0].gx).toBe(8);
+    expect(plate.pressed).toBe(true);
+    expect(gate.open).toBe(true);
+
+    // Back round the long way, since the crate now fills the corridor's east end.
+    walk(game, [...times(6, WEST), ...times(2, SOUTH), ...times(4, EAST)]);
+    expect(at(game)).toEqual({ gx: 5, gz: 3 });
+
+    expect(step(game, 0, 1)).toBe(true); // through the gate the crate is holding
+    expect(step(game, 0, 1)).toBe(true); // onto the star
+    expect(game.inventory.won).toBe(true);
+  });
+
+  it('lets Heavy Lifting be wedged by one shove too many, which R is for', () => {
+    const game = makeGame(stage('heavy-lifting'));
+
+    walk(game, times(7, EAST)); // one shove past the plate
+    expect(game.blocks.list[0].gx).toBe(9);
+    expect(at(game)).toEqual({ gx: 8, gz: 1 }); // the player is on the plate now
+
+    // Nothing can put the crate back: there is no tile east of it to push from, and
+    // a crate is never pulled.
+    expect(step(game, 1, 0)).toBe(false);
+
+    // So the only thing holding the gate open is the player, who has to be somewhere
+    // else for it to be any use.
+    expect(game.tilemap.get(5, 4).open).toBe(true);
+    walk(game, times(6, WEST));
+    expect(game.tilemap.get(8, 1).pressed).toBe(false);
+    expect(game.tilemap.get(5, 4).open).toBe(false);
+  });
+
   it('crosses Thin Ice in three slides', () => {
     const game = makeGame(stage('thin-ice'));
 
