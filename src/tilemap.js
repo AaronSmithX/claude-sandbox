@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { disposeTree } from './dispose.js';
 import { GLYPHS } from './glyphs.js';
+import { WaterSurface } from './water.js';
+import { IceShimmer } from './ice.js';
 
 export const TILE_SIZE = 1;
 
@@ -264,6 +266,14 @@ export class TileMap {
     this.occupants = () => [];
 
     this._elapsed = 0;
+
+    // Decoration that animates: the moving skin on the water and the shine on the
+    // ice. Null on a map with none of either, and on every headless map.
+    /** @type {?WaterSurface} */
+    this._water = null;
+    /** @type {?IceShimmer} */
+    this._ice = null;
+
     this._parse();
     if (build) this._build();
     this._resetState();
@@ -1015,6 +1025,7 @@ export class TileMap {
     this.phase = { red: 'A', cyan: 'A', pink: 'A' };
     // Platforms and pickup bobs are driven by this, so a retry starts them over.
     this._elapsed = 0;
+    this._water?.reset();
 
     for (const t of this.allTiles()) {
       t.taken = false;
@@ -1084,6 +1095,12 @@ export class TileMap {
 
   update(dt) {
     this._elapsed += dt;
+
+    // Decoration first, and on its own clock: neither of these is anything the
+    // rules read, so nothing below depends on having run them.
+    this._water?.update(dt);
+    this._ice?.update(dt);
+
     const k = 1 - Math.pow(0.002, dt); // exponential smoothing factor
     // Doors get a faster factor: the panel has one 0.14s step to clear the
     // doorway the player is already walking into.
@@ -1237,6 +1254,14 @@ export class TileMap {
       return plinths.get(height);
     };
 
+    // Water and ice are collected as they are met and animated together
+    // afterwards: one moving surface for all the water on the map, one shine for
+    // all the ice, rather than a piece of each per tile.
+    /** @type {import('./water.js').WaterTile[]} */
+    const waterTiles = [];
+    /** @type {import('./ice.js').IceTile[]} */
+    const iceTiles = [];
+
     for (const tile of this.allTiles()) {
       const { gx: x, gz: z } = tile;
       const world = this.gridToWorld(x, z);
@@ -1273,10 +1298,13 @@ export class TileMap {
       }
 
       if (tile.type === 'water') {
+        // The slab is the body of the water — what fills the hole and what is
+        // seen through the surface. The surface itself is built below, and moves.
         const mesh = new THREE.Mesh(waterGeo, waterMat);
         mesh.position.set(world.x, height - 0.15, world.z);
         mesh.receiveShadow = true;
         this.group.add(mesh);
+        waterTiles.push({ gx: x, gz: z, x: world.x, y: height, z: world.z });
         continue;
       }
 
@@ -1300,6 +1328,7 @@ export class TileMap {
       // not up onto anything.
       const flat = height === 0;
       const mat = tile.type === 'ice' ? iceMat : (x + z) % 2 === 0 ? floorMat : floorMatAlt;
+      if (tile.type === 'ice') iceTiles.push({ x: world.x, y: height, z: world.z });
 
       if (tile.layer > 0) {
         // A tile on an upper layer is a deck: a span on legs, because the whole
@@ -1318,6 +1347,16 @@ export class TileMap {
       const feature = this._buildFeature(tile, world);
       if (feature) this.group.add(feature);
 
+    }
+
+    if (waterTiles.length) {
+      this._water = new WaterSurface(waterTiles);
+      this.group.add(this._water.group);
+    }
+
+    if (iceTiles.length) {
+      this._ice = new IceShimmer(iceTiles);
+      this.group.add(this._ice.group);
     }
   }
 

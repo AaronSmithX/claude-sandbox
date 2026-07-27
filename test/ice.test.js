@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { makeMap, makeGame, advance, step, at } from './helpers/level.js';
 import { Inventory } from '../src/inventory.js';
+import { IceShimmer, sheenAt, glintAt, SHEEN_SPACING, SHEEN_SPEED } from '../src/ice.js';
 
 /**
  * `step()` runs frames until the player is at rest, so it carries a slide all the
@@ -208,5 +209,189 @@ describe('what a slide does where it lands', () => {
     expect(game.player.isSliding).toBe(false);
     expect(at(game)).toEqual({ gx: 1, gz: 1 });
     expect(step(game, 0, 1)).toBe(false); // walled in below, but input is heard
+  });
+});
+
+/**
+ * The shine on the ice: a band of light sweeping across it, and glints twinkling
+ * on it. All decoration — none of it touches sliding — so what these hold it to is
+ * that it moves, that it stays light rather than shadow, and that it is on the ice
+ * and nowhere else.
+ */
+
+describe('the sheen', () => {
+  it('is a band: brightest along its middle, dark between passes', () => {
+    expect(sheenAt(0, 0, 0)).toBeCloseTo(1, 5);
+
+    // Out along the way the band travels, as far as halfway to the next one.
+    // Beyond that the sweep repeats and the light comes back up, which is the
+    // point of the last line here.
+    const out = (units) => sheenAt(units / Math.SQRT2, units / Math.SQRT2, 0);
+    let last = 1;
+    for (let units = 0.4; units <= SHEEN_SPACING / 2; units += 0.4) {
+      expect(out(units)).toBeLessThan(last);
+      last = out(units);
+    }
+    expect(last).toBeLessThan(0.01);
+    expect(out(SHEEN_SPACING)).toBeCloseTo(1, 5);
+  });
+
+  it('only ever adds light, and never more than full', () => {
+    for (let x = -8; x < 8; x += 0.3) {
+      for (const t of [0, 1.1, 5.4]) {
+        expect(sheenAt(x, x / 2, t)).toBeGreaterThanOrEqual(0);
+        expect(sheenAt(x, x / 2, t)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('sweeps across the ice, and comes round again', () => {
+    /** Where the band is brightest along a line, at a given moment. */
+    const band = (t) => {
+      let best = { at: 0, light: -1 };
+      for (let x = -1; x < SHEEN_SPACING * Math.SQRT2 - 1; x += 0.01) {
+        const light = sheenAt(x, 0, t);
+        if (light > best.light) best = { at: x, light };
+      }
+      return best.at;
+    };
+
+    expect(band(0.5)).toBeGreaterThan(band(0) + 0.5);
+    expect(band(1)).toBeGreaterThan(band(0.5) + 0.5);
+    // A full pass later it is back where it started, so the sweep repeats
+    // without ever jumping.
+    expect(band(SHEEN_SPACING / SHEEN_SPEED)).toBeCloseTo(band(0), 1);
+  });
+
+  it('leaves a tile dark for most of the time between passes', () => {
+    let lit = 0;
+    let frames = 0;
+    for (let t = 0; t < 20; t += 0.01) {
+      frames++;
+      if (sheenAt(0, 0, t) > 0.5) lit++;
+    }
+    expect(lit / frames).toBeLessThan(0.3);
+  });
+});
+
+describe('glints', () => {
+  it('spark rather than pulse: dark most of the time, briefly full', () => {
+    let bright = 0;
+    let frames = 0;
+    let peak = 0;
+    for (let t = 0; t < 20; t += 0.01) {
+      const light = glintAt(t, 0.3);
+      expect(light).toBeGreaterThanOrEqual(0);
+      expect(light).toBeLessThanOrEqual(1);
+      peak = Math.max(peak, light);
+      frames++;
+      if (light > 0.25) bright++;
+    }
+    expect(peak).toBeGreaterThan(0.95);
+    expect(bright / frames).toBeLessThan(0.3);
+  });
+
+  it('gives each one its own clock, so they do not blink together', () => {
+    /** When this glint is at its brightest, within the first few seconds. */
+    const peaksAt = (phase) => {
+      let best = { t: 0, light: -1 };
+      for (let t = 0; t < 4; t += 0.01) {
+        const light = glintAt(t, phase);
+        if (light > best.light) best = { t, light };
+      }
+      return best.t;
+    };
+
+    expect(Math.abs(peaksAt(0) - peaksAt(1.7))).toBeGreaterThan(0.5);
+  });
+});
+
+describe('the shimmer over a map', () => {
+  /** Deterministic, so where the glints land does not vary between runs. */
+  const seeded = (seed = 1) => () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+
+  it('covers the ice and nothing else', () => {
+    const rink = makeMap(['#####', '#@ii#', '#####'], { build: true });
+    expect(rink._ice).not.toBeNull();
+
+    const bare = makeMap(['#####', '#@..#', '#####'], { build: true });
+    expect(bare._ice).toBeNull();
+  });
+
+  it('puts its glints on the ice tiles it was given', () => {
+    const tiles = [
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+    ];
+    const shimmer = new IceShimmer(tiles, { random: seeded() });
+
+    for (const glint of shimmer._glints.list) {
+      const home = tiles.find((tile) => Math.abs(glint.x - tile.x) <= 0.5);
+      expect(home).toBeDefined();
+      expect(Math.abs(glint.z - home.z)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('lights up as the band arrives and goes dark again after it', () => {
+    const shimmer = new IceShimmer([{ x: 0, y: 0, z: 0 }], { random: seeded() });
+
+    /** The brightest the tile gets at a moment, from a standing start. */
+    const brightest = (t) => {
+      shimmer._elapsed = 0;
+      shimmer.update(t);
+      return Math.max(...shimmer._sheen.color.array);
+    };
+
+    expect(brightest(0)).toBeGreaterThan(0.1); // the band is on it at the start
+    expect(brightest(SHEEN_SPACING / SHEEN_SPEED / 2)).toBeLessThan(0.01);
+    expect(brightest(SHEEN_SPACING / SHEEN_SPEED)).toBeGreaterThan(0.1);
+  });
+
+  it('only ever adds light, never subtracts it', () => {
+    const shimmer = new IceShimmer([{ x: 0, y: 0, z: 0 }], { random: seeded() });
+    for (let frame = 0; frame < 300; frame++) {
+      shimmer.update(1 / 60);
+      for (const value of shimmer._sheen.color.array) {
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(1);
+      }
+      for (const value of shimmer._glints.color.array) {
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('lights a glint from its centre, so the star fades out along its arms', () => {
+    const shimmer = new IceShimmer([{ x: 0, y: 0, z: 0 }], { random: seeded() });
+
+    // Run until one of them is at its brightest.
+    let peak = 0;
+    for (let frame = 0; frame < 600; frame++) {
+      shimmer.update(1 / 60);
+      peak = Math.max(peak, Math.max(...shimmer._glints.color.array));
+    }
+    expect(peak).toBeGreaterThan(0.3);
+
+    for (const glint of shimmer._glints.list) {
+      const colors = shimmer._glints.color.array;
+      for (let arm = 1; arm <= 8; arm++) {
+        expect(colors[(glint.first + arm) * 3]).toBe(0);
+      }
+    }
+  });
+
+  it('shimmers when the map is ticked, and not at all when it is headless', () => {
+    const rink = makeMap(['#####', '#@ii#', '#####'], { build: true });
+    const before = [...rink._ice._sheen.color.array];
+    rink.update(0.4);
+    expect([...rink._ice._sheen.color.array]).not.toEqual(before);
+
+    const headless = makeMap(['#####', '#@ii#', '#####']);
+    expect(headless._ice).toBeNull();
+    headless.update(0.4);
   });
 });
