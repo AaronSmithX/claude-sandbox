@@ -1,0 +1,30 @@
+# Background room tone, played underneath the theme: a slow drone with the
+# occasional drip. Very slow tempo, so a "whole note" here is six seconds.
+
+tempo 40
+loop on
+
+track drone
+  voice sine
+  gain 0.07
+  octave 1
+  env 1.2 1.5 0.85 1.8
+  | a/1 ~/1 |
+  | e2/1 ~/1 |
+  | f/1 ~/1 |
+  | c2/1 ~/1 |
+
+# Sparse high notes, like water somewhere out of sight.
+track drips
+  voice sine
+  gain 0.045
+  octave 6
+  env 0.005 0.30 0.0 0.35
+  | -/1                 |
+  | b/8 -/8 -/4 -/2     |
+  | -/1                 |
+  | e/8 -/8 g/8 -/8 -/2 |
+  | -/1                 |
+  | -/2 c/8 -/8 -/4     |
+  | -/1                 |
+  | -/1                 |

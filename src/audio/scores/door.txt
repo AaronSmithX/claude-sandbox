@@ -1,0 +1,18 @@
+# A door unlocking: a metallic turn, then the low thud of the panel swinging.
+
+tempo 200
+loop off
+
+track latch
+  voice square
+  gain 0.09
+  octave 5
+  env 0.002 0.04 0.0 0.05
+  g/16 c6/16
+
+track thud
+  voice triangle
+  gain 0.18
+  octave 2
+  env 0.005 0.10 0.2 0.14
+  -/16 -/16 f1/8

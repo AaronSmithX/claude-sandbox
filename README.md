@@ -1,19 +1,30 @@
 # Tile Runner — a 3D browser game
 
-A small [Three.js](https://threejs.org/) puzzle game where you move a cube
+A small [Three.js](https://threejs.org/) game where you walk a little person
 around a tile map built entirely from basic 3D shapes. Collect keys, open the
 doors they match, flip switches to raise and lower columns, dodge the patrolling
 spiked shells, and find the star. Grid-based movement with an angled overhead
-camera. Built with [Vite](https://vitejs.dev/) and deployed for free to GitHub
-Pages via GitHub Actions.
+camera, and a soundtrack synthesised from text files. Built with
+[Vite](https://vitejs.dev/) and deployed for free to GitHub Pages via GitHub
+Actions.
 
 **Play it live:** https://aaronsmithx.github.io/claude-sandbox/
 
 ## Controls
 
-- **WASD** or **arrow keys** — move one tile at a time.
-- **On touch devices**, an on-screen D-pad appears at the bottom of the screen.
-  Tap an arrow for a single tile, or hold it to keep walking.
+- **WASD** or **arrow keys** — a tap is one tile; hold a direction and you keep
+  walking that way, tile after tile, with no pause between them.
+- **M**, or the speaker button in the top right — mute and unmute. The setting is
+  remembered.
+- **On touch devices**, an on-screen D-pad appears at the bottom of the screen. It
+  behaves the same way: tap for one tile, hold to keep walking.
+
+Press a second direction while walking and it takes the next tile — the tile in
+flight always finishes first, so movement stays tile-locked. Let that one go and
+you carry on in whichever direction is still held.
+
+Sound starts on your first key press or tap, because browsers do not allow audio
+to begin before the page has been interacted with.
 
 ## How to play
 
@@ -24,21 +35,33 @@ each icon lights up once you pick that item up.
 | --- | --- |
 | **Keys** (gold, violet, white) | Opens a door of the *same colour*, and is spent doing so. |
 | **Doors** | Blocked until you hold the matching key. |
-| **Inner tube** | Once collected, you can move across water tiles. |
-| **Switches** (red, cyan, pink) | Stepping on one *swaps* that colour's columns: every raised column of that colour drops, and every retracted one pops up. |
-| **Columns** | Four posts that rise out of a tile. Raised columns block you; retracted ones don't. |
+| **Inner tube** | Once collected, you can move across water tiles — you sink down into them, riding the tube. |
+| **Ice** | Step onto it and you keep going that way, tile after tile, until you are off the ice or something stops you. You have no say until you come to rest, so look before you step. |
+| **Switches** (red, cyan, pink) | Stepping on one *swaps* that colour's columns: every raised column of that colour drops, and every retracted one pops up. Only one switch of a colour is down at a time — pressing one lets the others back up — and a switch already down does nothing, so you cannot toggle columns on the spot by standing on the same one twice. |
+| **Columns** | Four posts that rise out of a tile. Raised ones block you; retracted ones sit just proud of the floor, so you can see where they are and walk straight over them. |
 | **Star** | Reaching it wins the level. |
-| **Enemies** | A spiked shell that patrols a fixed route. Touching one ends the run. |
+| **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one ends the run. |
 
 Walls (grey) always block movement; you roam the green floor tiles. Every
 mechanic is required — the level cannot be finished while skipping any of them.
 
+### Ice
+
+A slide is one move: you press a direction once and keep going that way until the
+tile you arrive on is not ice, or the way ahead is blocked. Input is ignored for
+the whole of it. Anything you come to rest on still happens — a key is collected,
+a switch is pressed, the star is the star — but a **shut door stops you** rather
+than opening, so a slide can never spend a key on your behalf. Patrols cross ice
+like any other floor; only the player slides.
+
 ### Enemies
 
-Enemies move **in lockstep with you**: each step you take, every enemy takes
-one. They never move while you stand still, so the level is a puzzle rather than
-a reaction test. Doors always stop them, open or shut, so each one stays in its
-own room.
+Enemies patrol **on their own clocks**, whether or not you are moving — standing
+still is not safe. Each one keeps its own period (a little over half a second per
+tile, and no two neighbours the same), so patrols drift out of phase with each
+other rather than marching in step. You move a tile in 0.14s, roughly four times
+quicker, so a patrol can always be out-walked or waited out. Doors always stop
+them, open or shut, so each one stays in its own room.
 
 A movement pattern is simply *which way the enemy turns when something blocks
 its path*:
@@ -51,6 +74,42 @@ its path*:
 | counterclockwise | 90 degrees the other way |
 
 Turning and moving happen in the same step, so a blocked enemy never stalls.
+
+## Music and sound
+
+Every sound in the game — the looping theme, the room tone under it, and each
+sound effect — is a **plain text score** in `src/audio/scores/`, played by a
+small Web Audio synthesiser. There are no audio files. To rewrite the music,
+edit `theme.txt`.
+
+```
+tempo 104              # quarter notes per minute
+loop on                # "off" for a one-shot, like a sound effect
+
+track bass
+  voice triangle       # sine | square | triangle | saw | noise
+  gain 0.30            # 0..1, this track's level in the mix
+  octave 2             # the octave a bare note name means
+  env 0.01 0.07 0.55 0.14     # attack, decay, sustain (0..1), release
+  | a/4  a/8 -/8  e/4  a/4 |
+```
+
+A note is `pitch/duration`:
+
+| Token | Meaning |
+| --- | --- |
+| `c` `f#` `eb5` | a note — letter, optional `#`/`b`, optional octave |
+| `-` | a rest |
+| `~` | a tie: lengthens the note before it |
+| `x` | a percussion hit, on a `noise` track |
+| `/4` `/8.` | note value — 1, 2, 4, 8, 16 or 32, with `.` to dot it |
+| *no duration* | reuse the previous one |
+| `\|` | a bar line, ignored — it is there so you can read the file |
+| `#` | starts a comment |
+
+Tracks in a score play together and loop together, so give each the same number
+of bars. `src/audio/score.js` documents the format in full, and the test suite
+checks that every shipped score parses and that the looping ones line up.
 
 ## Local development
 
@@ -67,6 +126,39 @@ To produce a production build in `dist/`:
 npm run build
 npm run preview   # serve the built files locally
 ```
+
+### Tests
+
+```bash
+npm test          # once
+npm run test:watch
+```
+
+[Vitest](https://vitest.dev/), running in plain Node — three.js builds its
+geometry happily without a canvas, and nothing under test imports `main.js`.
+
+Fixtures are **miniature levels**: a handful of legend characters, just large
+enough to isolate one rule or the meeting of two. A failing test should tell you
+the whole story of the level it ran on.
+
+```js
+const game = makeGame(['#####', '#@gG*#', '#####']);
+step(game, 1, 0);   // onto the key
+step(game, 1, 0);   // through the door it opens
+```
+
+`test/helpers/level.js` has the builders. Two things to know:
+
+- Move the player with `step()`, not `player.tryMove()`. Pickups, switches and
+  the goal fire when a step *lands*, inside `player.update()`, so a test that
+  calls `tryMove` and asserts on the next line will always fail.
+- `step()` is one deliberate tile. To test a *held* direction, use
+  `player.press(dx, dz)` / `player.release(dx, dz)` and pump frames yourself with
+  `advance()`: the player keeps walking on its own, so `step()` would never return.
+- `advance(game, seconds)` pumps `tickWorld` — the same function the render loop
+  calls — so tests and the game cannot drift apart. Pass
+  `makeGame(rows, { enemies: { interval: 1, phase: 0 } })` to give patrols a
+  pacing a test can reason about.
 
 ## Deployment
 
@@ -88,31 +180,40 @@ site and publishes `dist/` to GitHub Pages.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Page shell, canvas, hint, HUD, D-pad and overlay markup/styles. |
+| `index.html` | Page shell, canvas, hint, HUD, mute button, D-pad and overlay markup/styles. |
 | `src/main.js` | Renderer, scene, camera, lights, wiring, and the render loop. |
+| `src/world.js` | One simulation step: update order and the collision check, shared with the tests. |
 | `src/tilemap.js` | The map, tile meshes, and all the level rules. |
-| `src/player.js` | The player cube and tile-to-tile movement. |
-| `src/enemy.js` | Patrolling enemies, their shapes and turn rules. |
+| `src/player.js` | Movement, held directions, facing and the walk cycle. |
+| `src/player-rig.js` | The player's body: head, torso, arms and legs. |
+| `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
 | `src/inventory.js` | What the player is carrying. |
+| `src/particles.js` | Pooled star sparks for pickups. |
+| `src/audio/score.js` | The text score format and its parser. |
+| `src/audio/synth.js` | Web Audio voices and the lookahead scheduler. |
+| `src/audio/index.js` | Starting sound, playing effects, muting. |
+| `src/audio/scores/` | The music and sound effects, as text. |
 | `src/hud.js` | The inventory bar at the top of the screen. |
-| `src/input.js` | Keyboard → grid-move mapping. |
-| `src/touch-controls.js` | On-screen D-pad for touch devices. |
+| `src/input.js` | Keys → held grid directions, and mute. |
+| `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
 | `src/camera-follow.js` | Overhead camera that follows the player. |
-| `vite.config.js` | Sets the `/claude-sandbox/` base path for Pages. |
+| `test/` | Vitest suite, built on miniature levels. |
+| `vite.config.js` | Pages base path, and the test runner's config. |
 
 ## Making it your own
 
-- **Redesign the level:** edit the `MAP` array in `src/tilemap.js`. It's a grid
-  of characters, documented by the `LEGEND` right above it:
+- **Redesign the level:** edit the `DEFAULT_MAP` array in `src/tilemap.js`. It's
+  a grid of characters, documented by the `LEGEND` right above it:
 
   ```
   #  wall          .  floor        ~  water       @  player spawn
-  *  star (goal)   O  inner tube
+  *  star (goal)   O  inner tube   i  ice
 
   g v w   keys  — gold, violet, white
   G V W   doors — gold, violet, white
 
-  1 2 3   switches — red, cyan, pink
+  1 2 3   switches that start up   — red, cyan, pink
+  4 5 6   switches that start down — red, cyan, pink (1 pairs with 4, 2 with 5...)
   X Y Z   columns that start RAISED    — red, cyan, pink
   x y z   columns that start RETRACTED — red, cyan, pink
 
@@ -123,8 +224,18 @@ site and publishes `dist/` to GitHub Pages.
   Uppercase is the thing that blocks you, lowercase its unblocked partner. A
   switch swaps the two groups of its colour, so pair `X` with `x` to make one
   press open a path and close another.
+
+  Two things to watch when placing switches. A colour with only one switch is
+  one-way: after that press it is spent. And never put a switch behind a column
+  of its own colour — pressing it can raise the only way out, with nothing left
+  to lower it again. The test suite checks the shipped level for exactly that.
 - **Recolour the items:** `KEY_COLORS` and `SWITCH_COLORS` in `src/tilemap.js`
   drive both the 3D meshes and the HUD icons.
-- **Change the player shape/color:** tweak the geometry and material in
-  `src/player.js`.
-- **Adjust the camera angle:** change the `offset` in `src/camera-follow.js`.
+- **Rebuild the player:** the body is assembled in `src/player-rig.js`; the walk
+  cycle and turning live in `src/player.js`.
+- **Rewrite the music:** edit `src/audio/scores/theme.txt`. See
+  [Music and sound](#music-and-sound).
+- **Retune the patrols:** `INTERVALS` and `PHASES` in `src/enemy.js` set how
+  often each enemy steps and where in its cycle it starts.
+- **Adjust the camera:** `offset` sets the angle and `smoothTime` how tightly it
+  follows, both in `src/camera-follow.js`. It deliberately never rotates.

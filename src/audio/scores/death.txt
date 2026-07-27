@@ -1,0 +1,17 @@
+# Caught by a patrol: a sagging fall.
+
+tempo 150
+loop off
+
+track fall
+  voice saw
+  gain 0.16
+  octave 4
+  env 0.005 0.12 0.5 0.25
+  a/8 f/8 d/8 a3/4
+
+track thump
+  voice noise
+  gain 0.09
+  env 0.002 0.18 0.0 0.18
+  -/8 -/8 -/8 x/8

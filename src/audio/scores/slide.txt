@@ -1,0 +1,18 @@
+# Setting off across ice: a breath of noise with a note bending up underneath it,
+# which is what makes it read as gliding rather than as a footstep.
+
+tempo 150
+loop off
+
+track hiss
+  voice noise
+  gain 0.07
+  env 0.02 0.30 0.25 0.30
+  x/4
+
+track glide
+  voice sine
+  gain 0.10
+  octave 5
+  env 0.03 0.10 0.6 0.30
+  c/8 g/8

@@ -1,0 +1,17 @@
+# Standing on a floor button: a click, then the grind of columns moving.
+
+tempo 200
+loop off
+
+track click
+  voice square
+  gain 0.10
+  octave 6
+  env 0.001 0.03 0.0 0.03
+  c/32 g5/32
+
+track grind
+  voice noise
+  gain 0.06
+  env 0.03 0.20 0.3 0.20
+  -/16 x/4

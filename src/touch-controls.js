@@ -2,9 +2,12 @@
  * On-screen D-pad for touch devices.
  *
  * The markup lives in `index.html` (`#touch-controls`); this module wires it to
- * the player and mirrors how the keyboard behaves: a tap is one tile, holding a
- * button waits a beat and then walks continuously. The pad only appears on
+ * the player and mirrors how the keyboard behaves: a tap is one tile, and a held
+ * button walks on from there without a pause. The pad only appears on
  * touch-capable devices, or as soon as a real touch happens on a hybrid one.
+ *
+ * The player owns the held direction and the pacing, so there is no repeat timer
+ * here — a button down is a press, a button up is a release.
  */
 
 const MOVES = {
@@ -14,41 +17,22 @@ const MOVES = {
   right: [1, 0],
 };
 
-// Seconds a button must be held before it starts auto-repeating, matching the
-// feel of an OS keyboard repeat delay.
-const HOLD_DELAY = 0.25;
-
 export function setupTouchControls(player) {
   const root = document.getElementById('touch-controls');
   if (!root) return;
 
-  // Direction currently held down, plus how long it has been held.
-  let held = null;
-  let heldFor = 0;
-  let lastFrame = 0;
-  let frameId = 0;
-
-  function release() {
-    held = null;
-    if (frameId) {
-      cancelAnimationFrame(frameId);
-      frameId = 0;
-    }
+  function releaseAll() {
+    player.releaseAll();
     for (const btn of root.querySelectorAll('.is-pressed')) {
       btn.classList.remove('is-pressed');
     }
   }
 
-  function tick(now) {
-    frameId = requestAnimationFrame(tick);
-    const dt = Math.min((now - lastFrame) / 1000, 0.05);
-    lastFrame = now;
-    if (!held) return;
-
-    heldFor += dt;
-    // Past the initial delay we ask every frame; the player ignores requests
-    // while a step is in flight, so this paces itself to one tile per step.
-    if (heldFor >= HOLD_DELAY) player.tryMove(held[0], held[1]);
+  /** Lifting one button leaves any other still under a finger holding its way. */
+  function release(btn) {
+    const move = MOVES[btn.dataset.move];
+    if (move) player.release(move[0], move[1]);
+    btn.classList.remove('is-pressed');
   }
 
   function press(btn, event) {
@@ -60,32 +44,25 @@ export function setupTouchControls(player) {
     enableTouchMode();
 
     btn.classList.add('is-pressed');
-    held = move;
-    heldFor = 0;
-    player.tryMove(move[0], move[1]);
-
-    if (!frameId) {
-      lastFrame = performance.now();
-      frameId = requestAnimationFrame(tick);
-    }
+    player.press(move[0], move[1]);
   }
 
   for (const btn of root.querySelectorAll('[data-move]')) {
     btn.addEventListener('pointerdown', (e) => press(btn, e));
-    btn.addEventListener('pointerup', release);
-    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerup', () => release(btn));
+    btn.addEventListener('pointercancel', () => release(btn));
     // Mouse users can drag off a button; touch pointers stay captured by the
     // element they started on, so this only affects the pointer-fine case.
     btn.addEventListener('pointerleave', (e) => {
-      if (e.pointerType !== 'touch') release();
+      if (e.pointerType !== 'touch') release(btn);
     });
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // Never leave the player walking into a wall forever after we lose focus.
-  window.addEventListener('blur', release);
+  // A pointerup we never see would otherwise leave the player walking on.
+  window.addEventListener('blur', releaseAll);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) release();
+    if (document.hidden) releaseAll();
   });
 }
 

@@ -1,0 +1,11 @@
+# One soft noise tick per tile walked. Must stay quiet: it fires several times
+# a second when someone holds a direction down.
+
+tempo 240
+loop off
+
+track tap
+  voice noise
+  gain 0.05
+  env 0.001 0.02 0.0 0.02
+  x/32

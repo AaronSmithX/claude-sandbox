@@ -12,23 +12,42 @@ const DOME_COLOR = 0xe03131;
  * blocked, plus the heading to set off in. Vertical and horizontal bounce along
  * a line; the two rotational patterns wall-follow around a room.
  */
-const PATTERNS = {
+export const PATTERNS = {
   vertical: { start: [0, 1], turn: ([dx, dz]) => [-dx, -dz] },
   horizontal: { start: [1, 0], turn: ([dx, dz]) => [-dx, -dz] },
   clockwise: { start: [1, 0], turn: ([dx, dz]) => [-dz, dx] },
   counterclockwise: { start: [1, 0], turn: ([dx, dz]) => [dz, -dx] },
 };
 
+// Seconds per tile, and where in that cycle each enemy starts. Both are looked
+// up by spawn order — which is row-major and so stable for a given map — rather
+// than randomised, so a level always plays the same way and the tests are
+// deterministic. No two neighbouring entries share a period, so patrols drift
+// out of phase with each other instead of marching in lockstep. Everything here
+// is well over the player's 0.14s step, so you can always out-walk a patrol.
+const INTERVALS = [0.62, 0.74, 0.55, 0.68, 0.8];
+const PHASES = [0, 0.5, 0.25, 0.75, 0.1];
+
 /**
  * One patrolling enemy: a white disc, a smaller red dome, and a white spike —
- * a spike sitting on a shell. Moves one tile per player move.
+ * a spike sitting on a shell. Steps on its own timer, independently of the
+ * player and of the other enemies.
  */
 export class Enemy {
-  constructor(tilemap, spawn) {
+  /**
+   * @param {{index?: number, interval?: number, phase?: number}} [options]
+   *   Production passes `index` (the spawn's position in the map) and lets the
+   *   tables above choose the pacing; tests pass `interval`/`phase` directly.
+   */
+  constructor(tilemap, spawn, options = {}) {
     this.tilemap = tilemap;
     this.spawn = spawn; // { gx, gz, pattern }
     this.pattern = PATTERNS[spawn.pattern];
     if (!this.pattern) throw new Error(`Unknown enemy pattern "${spawn.pattern}"`);
+
+    const index = options.index ?? 0;
+    this.interval = options.interval ?? INTERVALS[index % INTERVALS.length];
+    this.phase = options.phase ?? PHASES[index % PHASES.length];
 
     this.mesh = buildEnemyMesh();
 
@@ -40,9 +59,13 @@ export class Enemy {
   reset() {
     this.gx = this.spawn.gx;
     this.gz = this.spawn.gz;
+    this.prevGx = this.gx;
+    this.prevGz = this.gz;
     this.dir = [...this.pattern.start];
     this._moving = false;
     this._t = 0;
+    // Staggered, so a room full of patrols doesn't fire on the same frame.
+    this._timer = this.phase * this.interval;
     const p = this.tilemap.gridToWorld(this.gx, this.gz);
     this.mesh.position.set(p.x, 0, p.z);
   }
@@ -54,6 +77,10 @@ export class Enemy {
    */
   step() {
     let dir = this.dir;
+    // Recorded on every step, however the step was triggered, because the
+    // pass-through check in Enemies.hits() reads it.
+    this.prevGx = this.gx;
+    this.prevGz = this.gz;
 
     for (let attempt = 0; attempt < 4; attempt++) {
       const nx = this.gx + dir[0];
@@ -79,8 +106,27 @@ export class Enemy {
     this.dir = dir;
   }
 
-  update(dt) {
-    if (!this._moving) return;
+  /**
+   * Advances the timer and, when it comes round, takes a tile step. The tween
+   * keeps running even while frozen, so nothing is left stranded between tiles.
+   * @returns {boolean} whether a tile step was taken this frame
+   */
+  update(dt, frozen = false) {
+    let stepped = false;
+
+    if (!frozen) {
+      this._timer += dt;
+      if (this._timer >= this.interval) {
+        this._timer -= this.interval;
+        // One step per frame at most: a long dt (a backgrounded tab, a slow
+        // first frame) must not let an enemy teleport across several tiles.
+        if (this._timer >= this.interval) this._timer = 0;
+        this.step();
+        stepped = true;
+      }
+    }
+
+    if (!this._moving) return stepped;
 
     this._t += dt / MOVE_DURATION;
     if (this._t >= 1) {
@@ -90,47 +136,63 @@ export class Enemy {
 
     const e = this._t * this._t * (3 - 2 * this._t);
     this.mesh.position.lerpVectors(this._from, this._to, e);
+    return stepped;
   }
 }
 
 /** Owns every enemy on the level and the group their meshes live in. */
 export class Enemies {
-  constructor(tilemap) {
+  /** @param {{interval?: number, phase?: number}} [options] applied to every enemy, for tests */
+  constructor(tilemap, options = {}) {
     this.group = new THREE.Group();
-    this.list = tilemap.enemySpawns.map((spawn) => {
-      const enemy = new Enemy(tilemap, spawn);
+    this.list = tilemap.enemySpawns.map((spawn, index) => {
+      const enemy = new Enemy(tilemap, spawn, { index, ...options });
       this.group.add(enemy.mesh);
       return enemy;
     });
   }
 
-  /** Every enemy takes one step. Called once per successful player move. */
+  /**
+   * Forces every enemy to step now, ignoring its timer. Nothing in the game
+   * calls this any more — it is here for tests, and for anyone who wants the
+   * old lockstep behaviour back.
+   */
   step() {
-    for (const enemy of this.list) {
-      enemy.prevGx = enemy.gx;
-      enemy.prevGz = enemy.gz;
-      enemy.step();
-    }
+    for (const enemy of this.list) enemy.step();
   }
 
   /**
-   * True when an enemy has caught the player. Covers landing on the player's
-   * tile, and the swap case where the two walked through each other:
-   * the player went `from` -> current while an enemy went the other way.
+   * The enemy that has caught the player, or null. Grid coordinates are the
+   * truth here; the tweens are only decoration. There are two ways to be caught:
+   *
+   *  - occupancy: something is standing on the player's tile;
+   *  - pass-through: the two swapped tiles, each ending up on the other's
+   *    previous one, so they crossed without ever sharing a tile.
+   *
+   * Both sides now move on their own clocks, so this is checked every frame
+   * rather than only when the player moves. A stale `player.prev` cannot cause
+   * a false positive: for the pass-through arm to match, the enemy's previous
+   * tile must be the player's *current* tile, which the occupancy arm would
+   * already have caught on an earlier frame.
    */
-  hits(player, from) {
-    return this.list.some(
-      (e) =>
-        (e.gx === player.gx && e.gz === player.gz) ||
-        (e.gx === from.gx &&
-          e.gz === from.gz &&
-          e.prevGx === player.gx &&
-          e.prevGz === player.gz),
+  hits(player) {
+    return (
+      this.list.find(
+        (e) =>
+          (e.gx === player.gx && e.gz === player.gz) ||
+          (e.gx === player.prevGx &&
+            e.gz === player.prevGz &&
+            e.prevGx === player.gx &&
+            e.prevGz === player.gz),
+      ) ?? null
     );
   }
 
-  update(dt) {
-    for (const enemy of this.list) enemy.update(dt);
+  /** @returns {boolean} whether any enemy took a tile step this frame */
+  update(dt, frozen = false) {
+    let stepped = false;
+    for (const enemy of this.list) stepped = enemy.update(dt, frozen) || stepped;
+    return stepped;
   }
 
   reset() {

@@ -45,6 +45,7 @@
       /* Shared glass-panel look for every overlay. */
       #hint,
       #hud,
+      #mute,
       .overlay-panel {
         background: rgba(10, 16, 32, 0.6);
         border: 1px solid rgba(120, 150, 220, 0.25);
@@ -77,6 +78,43 @@
       /* Once you're moving, you don't need to be told how to move. */
       body.has-moved #hint {
         opacity: 0;
+      }
+
+      /* --- Mute toggle ---------------------------------------------------- */
+      #mute {
+        position: fixed;
+        top: calc(14px + env(safe-area-inset-top));
+        right: calc(14px + env(safe-area-inset-right));
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border-radius: 12px;
+        cursor: pointer;
+        font: inherit;
+        -webkit-tap-highlight-color: transparent;
+        transition: opacity 180ms ease;
+      }
+      #mute:hover {
+        opacity: 0.8;
+      }
+      #mute svg {
+        width: 20px;
+        height: 20px;
+        display: block;
+      }
+      /* Each icon shows only in its own state, so the button never lies about
+         whether sound is on. */
+      #mute .icon-muted,
+      body.is-muted #mute .icon-sound {
+        display: none;
+      }
+      body.is-muted #mute .icon-muted {
+        display: block;
+      }
+      body.is-muted #mute {
+        color: #8792ad;
       }
 
       /* --- Inventory HUD -------------------------------------------------- */
@@ -258,9 +296,21 @@
 
     <div id="hud" aria-label="Inventory"></div>
 
+    <button id="mute" type="button" aria-label="Mute sound" aria-pressed="false">
+      <svg class="icon-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9.5h3L11.5 5v14L7 14.5H4z" fill="currentColor" stroke="none" />
+        <path d="M15.5 9a4.5 4.5 0 0 1 0 6" />
+        <path d="M18.5 6a8 8 0 0 1 0 12" />
+      </svg>
+      <svg class="icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9.5h3L11.5 5v14L7 14.5H4z" fill="currentColor" stroke="none" />
+        <path d="M16 9.5l5 5M21 9.5l-5 5" />
+      </svg>
+    </button>
+
     <div id="hint">
       <span class="keyboard-hint">
-        Move with <b>WASD</b> or <b>arrow keys</b> — one tile at a time.
+        Move with <b>WASD</b> or <b>arrow keys</b> — tap for one tile, hold to walk.
       </span>
       <span class="touch-hint">Tap or hold the <b>arrows</b> to move.</span>
     </div>
