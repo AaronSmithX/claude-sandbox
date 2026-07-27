@@ -46,6 +46,7 @@
       #hint,
       #hud,
       #mute,
+      #exit,
       #stage-label,
       .overlay-panel {
         background: rgba(10, 16, 32, 0.6);
@@ -89,9 +90,19 @@
       body.has-moved #hint {
         opacity: 0;
       }
+      /* The hint, the stage label and the inventory bar all belong to a stage. With
+         no stage on the screen there is nothing for them to be about, and a bar
+         reading "1/9 — First Steps" over the title screen is a stage that isn't
+         there. */
+      body:not(.has-stage) #hint,
+      body:not(.has-stage) #stage-label,
+      body:not(.has-stage) #hud {
+        display: none;
+      }
 
-      /* --- Mute toggle ---------------------------------------------------- */
-      #mute {
+      /* --- Corner buttons: mute, and leaving the stage --------------------- */
+      #mute,
+      #exit {
         position: fixed;
         top: calc(14px + env(safe-area-inset-top));
         right: calc(14px + env(safe-area-inset-right));
@@ -106,10 +117,22 @@
         -webkit-tap-highlight-color: transparent;
         transition: opacity 180ms ease;
       }
-      #mute:hover {
+      /* Exit sits inboard of mute, which has been in that corner all along. There
+         is nothing to leave unless a stage is in play, so it only appears then —
+         the level list must not offer to exit itself. */
+      #exit {
+        right: calc(62px + env(safe-area-inset-right));
+        display: none;
+      }
+      body.is-playing #exit {
+        display: grid;
+      }
+      #mute:hover,
+      #exit:hover {
         opacity: 0.8;
       }
-      #mute svg {
+      #mute svg,
+      #exit svg {
         width: 20px;
         height: 20px;
         display: block;
@@ -243,6 +266,108 @@
       #try-again {
         background: #ff9d7a;
       }
+      /* A second way out of a panel, which should not compete with the first. */
+      .overlay button.secondary {
+        background: transparent;
+        color: #aab8dd;
+        border: 1px solid rgba(120, 150, 220, 0.35);
+      }
+      .overlay-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+      }
+
+      /* --- Level list ----------------------------------------------------- */
+      /* Taller than the other panels and scrollable inside itself: the run grows,
+         and a phone in landscape has very little height to give it. */
+      #levels .overlay-panel {
+        max-width: 380px;
+        width: 100%;
+        max-height: min(80vh, 560px);
+        display: flex;
+        flex-direction: column;
+        padding: 24px;
+      }
+      #level-list {
+        list-style: none;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 4px 0 18px;
+        text-align: left;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+      }
+      .level-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        min-height: 46px;
+        border: 1px solid rgba(120, 150, 220, 0.22);
+        border-radius: 11px;
+        background: rgba(255, 255, 255, 0.04);
+        color: #dfe7ff;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background 140ms ease,
+          border-color 140ms ease;
+      }
+      .level-row:hover:not(:disabled) {
+        background: rgba(143, 180, 255, 0.18);
+        border-color: rgba(143, 180, 255, 0.5);
+      }
+      .level-row:active:not(:disabled) {
+        transform: scale(0.99);
+      }
+      /* Locked rows stay legible enough to be read as a row, and dim enough to be
+         read as shut. The padlock is what actually says so. */
+      .level-row:disabled {
+        cursor: default;
+        opacity: 0.45;
+        color: #8792ad;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .level-mark,
+      .level-clear {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        flex: none;
+      }
+      .level-mark svg,
+      .level-clear svg {
+        width: 18px;
+        height: 18px;
+        display: block;
+      }
+      .level-number {
+        font-size: 12px;
+        font-weight: 700;
+        color: #8fb4ff;
+      }
+      .level-row:disabled .level-number {
+        color: inherit;
+      }
+      .level-name {
+        flex: 1;
+        letter-spacing: 0.2px;
+      }
+      /* A locked name is a row of question marks, which should not read as loud as
+         a name you have earned. */
+      .level-row:disabled .level-name {
+        letter-spacing: 2px;
+      }
       body.touch-mode .keyboard-hint,
       body:not(.touch-mode) .touch-hint {
         display: none;
@@ -343,11 +468,18 @@
       </svg>
     </button>
 
+    <button id="exit" type="button" aria-label="Exit to the level list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.5 4.5h4a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-4" />
+        <path d="M10 8l-4 4 4 4M6 12h9" />
+      </svg>
+    </button>
+
     <div id="hint">
       <span id="hint-text"></span>
       <span class="keyboard-hint">
         Move with <b>WASD</b> or <b>arrow keys</b> — tap for one tile, hold to walk.
-        <b>R</b> restarts the stage.
+        <b>R</b> restarts the stage, <b>Esc</b> leaves it.
       </span>
       <span class="touch-hint">Tap or hold the <b>arrows</b> to move.</span>
     </div>
@@ -400,11 +532,38 @@
       </div>
     </div>
 
+    <div id="levels" class="overlay">
+      <div class="overlay-panel">
+        <h1>Levels</h1>
+        <ol id="level-list"></ol>
+        <div class="overlay-actions">
+          <button id="levels-title" class="secondary" type="button">Title screen</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="confirm-exit" class="overlay">
+      <div class="overlay-panel">
+        <h1>Leave this level?</h1>
+        <p>
+          You will lose your progress on this level. Levels you have already cleared
+          stay cleared.
+        </p>
+        <div class="overlay-actions">
+          <button id="exit-confirm" type="button">Exit to levels</button>
+          <button id="exit-cancel" class="secondary" type="button">Keep playing</button>
+        </div>
+      </div>
+    </div>
+
     <div id="stage-clear" class="overlay">
       <div class="overlay-panel">
         <h1>Stage clear</h1>
         <p id="stage-clear-name"></p>
-        <button id="next-stage" type="button">Next stage</button>
+        <div class="overlay-actions">
+          <button id="next-stage" type="button">Next stage</button>
+          <button id="clear-levels" class="secondary" type="button">Levels</button>
+        </div>
       </div>
     </div>
 
@@ -412,7 +571,7 @@
       <div class="overlay-panel">
         <h1>You win!</h1>
         <p>Every stage cleared, every star found. That was the whole game.</p>
-        <button id="play-again" type="button">Play again</button>
+        <button id="play-again" type="button">Back to levels</button>
       </div>
     </div>
 
@@ -420,7 +579,10 @@
       <div class="overlay-panel">
         <h1>Game over</h1>
         <p>One of the spiked shells got you. The stage restarts from the top.</p>
-        <button id="try-again" type="button">Retry stage</button>
+        <div class="overlay-actions">
+          <button id="try-again" type="button">Retry stage</button>
+          <button id="dead-levels" class="secondary" type="button">Levels</button>
+        </div>
       </div>
     </div>
 

@@ -3,11 +3,13 @@ import { TileMap } from '../src/tilemap.js';
 import { Enemies } from '../src/enemy.js';
 import { Player } from '../src/player.js';
 import { Inventory } from '../src/inventory.js';
+import { StageScene } from '../src/stage-scene.js';
 import { makeMap, advance, at } from './helpers/level.js';
 
 /**
- * What has to happen when one stage gives way to the next: the old stage's meshes
- * are handed back, and the player — which outlives every stage, because the camera
+ * What has to happen when one stage gives way to the next — or to no stage at all,
+ * which is what the title screen and the level list are: the old stage's meshes are
+ * handed back, and the player — which outlives every stage, because the camera
  * follows it and the input is bound to it — arrives on the new map at its spawn
  * with nothing carried over.
  */
@@ -55,6 +57,61 @@ describe('unloading a stage', () => {
     expect(watch.count).toBe(watch.total);
     expect(enemies.group.children).toHaveLength(0);
     expect(enemies.list).toHaveLength(0);
+  });
+});
+
+/**
+ * A stage is now built when one is played and destroyed when it stops being played,
+ * rather than living for the whole session — the title screen, the level list and the
+ * win panel have nothing behind them. That makes what a stage owns, and what it only
+ * borrows, worth stating exactly.
+ */
+describe('a stage on the screen', () => {
+  /** Everything a stage can build: tiles, a patrol and a crate. */
+  const STAGE = {
+    id: 'fixture',
+    name: 'Fixture',
+    hint: '',
+    rows: ['######', '#@.B.#', '#..-.#', '#...*#', '######'],
+  };
+
+  it('builds its map, its patrols and its crates under one root', () => {
+    const scene = new StageScene(STAGE);
+
+    expect(scene.enemies.list).toHaveLength(1);
+    expect(scene.blocks.list).toHaveLength(1);
+    expect(scene.root.children).toEqual([
+      scene.tilemap.group,
+      scene.enemies.group,
+      scene.blocks.group,
+    ]);
+  });
+
+  it('hands back every geometry and material when it is unloaded', () => {
+    const scene = new StageScene(STAGE);
+    const watch = watchDisposal(resources(scene.root));
+    expect(watch.total).toBeGreaterThan(0);
+
+    scene.dispose();
+
+    expect(watch.count).toBe(watch.total);
+  });
+
+  it('empties its root, including anything only visiting it', () => {
+    // The player and the sparks are parented to the stage so that unloading takes
+    // them off the screen — but they outlive it, so they are cleared rather than
+    // disposed. Anything still parented here after an unload would be a stage that
+    // is gone still drawing.
+    const scene = new StageScene(STAGE);
+    const player = new Player(scene.tilemap, new Inventory());
+    scene.root.add(player.mesh);
+
+    scene.dispose();
+
+    expect(scene.root.children).toHaveLength(0);
+    expect(player.mesh.parent).toBe(null);
+    // Still whole, and ready for the next stage.
+    expect(player.mesh.children.length).toBeGreaterThan(0);
   });
 });
 

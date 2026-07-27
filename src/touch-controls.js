@@ -24,10 +24,15 @@ const MOVES = {
  */
 
 /**
- * @param {import('./player.js').Player} player
+ * Asked for the player rather than handed one, for the same reason as the keyboard:
+ * the pad is bound at start-up, and there is no stage — and so no player — behind the
+ * title screen or the level list. Revealing the pad is not gated on one, so a first
+ * touch on the title screen still switches the hint text over.
+ *
+ * @param {() => (import('./player.js').Player | null)} getPlayer
  * @param {PadOptions} [options]
  */
-export function setupTouchControls(player, { enabled } = {}) {
+export function setupTouchControls(getPlayer, { enabled } = {}) {
   const found = document.getElementById('touch-controls');
   if (!found) return;
   // Bound to a new name, so the hoisted handlers below can see that it is there.
@@ -36,7 +41,7 @@ export function setupTouchControls(player, { enabled } = {}) {
   const canMove = () => enabled?.() ?? true;
 
   function releaseAll() {
-    player.releaseAll();
+    getPlayer()?.releaseAll();
     for (const btn of root.querySelectorAll('.is-pressed')) {
       btn.classList.remove('is-pressed');
     }
@@ -45,7 +50,7 @@ export function setupTouchControls(player, { enabled } = {}) {
   /** Lifting one button leaves any other still under a finger holding its way. */
   function release(btn) {
     const move = MOVES[btn.dataset.move];
-    if (move) player.release(move[0], move[1]);
+    if (move) getPlayer()?.release(move[0], move[1]);
     btn.classList.remove('is-pressed');
   }
 
@@ -59,7 +64,7 @@ export function setupTouchControls(player, { enabled } = {}) {
     if (!canMove()) return;
 
     btn.classList.add('is-pressed');
-    player.press(move[0], move[1]);
+    getPlayer()?.press(move[0], move[1]);
   }
 
   for (const btn of root.querySelectorAll('[data-move]')) {

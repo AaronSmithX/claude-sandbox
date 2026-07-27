@@ -9,16 +9,24 @@
  * @typedef {object} InputHandlers
  * @property {() => void} [onMute]
  * @property {() => void} [onRetry]
+ * @property {() => void} [onExit] Escape — leaving the stage for the level list. The
+ *   shell decides what that means from the phase it is in, including backing out of
+ *   the prompt it just put up.
  * @property {() => boolean} [enabled] asked before every move: false while a panel is
  *   up, so the title screen and the stage-clear panel do not quietly let the player
- *   walk around behind them. Mute and retry are never gated.
+ *   walk around behind them. Mute, retry and exit are never gated.
  */
 
 /**
- * @param {import('./player.js').Player} player
+ * Asked for the player rather than handed one, because there is not always a player
+ * to hand over: there is no stage behind the title screen or the level list, and a
+ * player needs a map to stand on. M and Escape still have to work there, so the keys
+ * are bound at start-up and every one of them tolerates finding nobody home.
+ *
+ * @param {() => (import('./player.js').Player | null)} getPlayer
  * @param {InputHandlers} [handlers]
  */
-export function setupInput(player, { onMute, onRetry, enabled } = {}) {
+export function setupInput(getPlayer, { onMute, onRetry, onExit, enabled } = {}) {
   const canMove = () => enabled?.() ?? true;
   const moves = {
     ArrowUp: [0, -1],
@@ -42,8 +50,18 @@ export function setupInput(player, { onMute, onRetry, enabled } = {}) {
     // walk back — and, once a stage can be wedged, for when you have to.
     if (e.code === 'KeyR') {
       e.preventDefault();
-      player.releaseAll();
+      getPlayer()?.releaseAll();
       onRetry?.();
+      return;
+    }
+
+    // Out of the stage, back to the level list — after a confirmation, which the
+    // shell puts up. Escape backs out of that prompt too, so the key that opens it
+    // is also the key that dismisses it.
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      getPlayer()?.releaseAll();
+      onExit?.();
       return;
     }
 
@@ -54,19 +72,19 @@ export function setupInput(player, { onMute, onRetry, enabled } = {}) {
     // so there is nothing to do with it.
     if (e.repeat) return;
     if (!canMove()) return;
-    player.press(move[0], move[1]);
+    getPlayer()?.press(move[0], move[1]);
   });
 
   window.addEventListener('keyup', (e) => {
     const move = moves[e.code];
     if (!move) return;
-    player.release(move[0], move[1]);
+    getPlayer()?.release(move[0], move[1]);
   });
 
   // A keyup that lands on another window never reaches us, so a key held as
   // focus goes away would otherwise walk on forever.
-  window.addEventListener('blur', () => player.releaseAll());
+  window.addEventListener('blur', () => getPlayer()?.releaseAll());
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) player.releaseAll();
+    if (document.hidden) getPlayer()?.releaseAll();
   });
 }

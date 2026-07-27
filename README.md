@@ -16,8 +16,13 @@ Actions.
 - **WASD** or **arrow keys** — a tap is one tile; hold a direction and you keep
   walking that way, tile after tile, with no pause between them.
 - **R** — restart the stage you are on, from the top.
+- **Escape**, or the door button in the top right — leave the stage for the level
+  list. It asks first, since a stage you are halfway through is worth a
+  confirmation; Escape again is the way to say no. Elsewhere it steps back one
+  screen.
 - **Enter** or **Space** — the button on whichever panel is up: start, next stage,
-  retry, play again.
+  retry, back to levels. Not on the level list or the exit prompt, where the answer
+  is whichever button you pick.
 - **M**, or the speaker button in the top right — mute and unmute. The setting is
   remembered.
 - **On touch devices**, an on-screen D-pad appears at the bottom of the screen. It
@@ -32,9 +37,13 @@ to begin before the page has been interacted with.
 
 ## Stages
 
-The game is a short run of stages, played in order from the title screen: eight that
-each introduce one thing, then the original single level as the finale with
-everything on it at once.
+The game is a short run of stages: eight that each introduce one thing, then the
+original single level as the finale with everything on it at once.
+
+The title screen leads to the level list, which is where a stage is chosen. Only the
+first is open to begin with — the rest sit behind a padlock, under a row of question
+marks, and each one opens as the stage before it is cleared. A cleared stage keeps a
+star beside its name and can be replayed from the list at any point.
 
 | Stage | What it is for |
 | --- | --- |
@@ -49,7 +58,19 @@ everything on it at once.
 | **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
 
 Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
-stage rather than the run, and **R** restarts it whenever you like.
+stage rather than the run, and **R** restarts it whenever you like. Clearing is also
+what unlocks the next stage, and that is remembered in local storage under
+`tile-runner:progress:v1` — as a list of stage ids, so reordering the run cannot hand
+someone else's progress to the wrong level. **Escape** leaves for the level list at
+any point, and a stage abandoned that way stays uncleared.
+
+A stage exists only while one is being played. The title screen, the level list and
+the win panel are screens in their own right, with nothing behind them: no map is
+built, and `Campaign.hasStage` is what the shell reads to decide. The panels that end
+a stage — cleared, game over, and the prompt asking whether to leave — do keep it on
+screen, since you want to see where you died and "Keep playing" has to hand that exact
+stage back. `src/stage-scene.js` owns the loading and unloading, so what a stage
+builds and what it merely borrows (the player, the sparks) is stated in one place.
 
 Stages live in `src/levels.js` as rows of legend characters — content only. Adding
 one is a data change: append a `{ id, name, hint, rows }` entry, plus an `upper`
@@ -274,10 +295,16 @@ step(game, 1, 0);   // through the door it opens
   `makeGame(rows, { enemies: { interval: 1, phase: 0 } })` to give patrols a
   pacing a test can reason about.
 
-Two suites are about the game rather than a rule: `test/levels.test.js` runs the
-authoring checks over every stage in `src/levels.js`, and `test/campaign.test.js`
-drives the title → stages → win flow straight through `Campaign`, which is why that
-class knows nothing about the DOM.
+Four suites are about the game rather than a rule. `test/levels.test.js` runs the
+authoring checks over every stage in `src/levels.js`. `test/campaign.test.js` drives
+the title → levels → stages → win flow straight through `Campaign` — what the level
+list shows, what leaving a stage does, and which screens have one behind them.
+`test/progress.test.js` covers saving over a fake store, junk under the key included.
+And `test/stage-swap.test.js` covers a stage arriving and leaving: the meshes handed
+back, the root left empty, and the player carried across untouched. `Campaign` and
+`Progress` knowing nothing about the DOM is what makes the first three possible;
+`main.js` needs WebGL and is not imported by any of them, which is why the load and
+unload logic lives in `src/stage-scene.js` where it can be tested.
 
 ### Types
 
@@ -313,11 +340,14 @@ site and publishes `dist/` to GitHub Pages.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Page shell, canvas, hint, HUD, mute button, D-pad and overlay markup/styles. |
+| `index.html` | Page shell, canvas, hint, HUD, mute and exit buttons, D-pad and overlay markup/styles. |
 | `src/main.js` | Renderer, scene, camera, lights, wiring, stage loading, and the render loop. |
 | `src/world.js` | One simulation step: update order and the collision check, shared with the tests. |
 | `src/levels.js` | The stages: rows of legend characters, and nothing else. |
-| `src/campaign.js` | Which stage you are on and what happens next: title, playing, clear, dead, complete. |
+| `src/campaign.js` | Which stage you are on and what happens next: title, levels, playing, clear, dead, complete — which levels are open, and whether there is a stage at all. |
+| `src/stage-scene.js` | Everything one stage puts on the screen, built together and thrown away together. |
+| `src/progress.js` | What has been cleared, saved to local storage and read back. |
+| `src/level-select.js` | The level list's rows: padlocks, question marks and stars. |
 | `src/tilemap.js` | One loaded stage: tile meshes, layers, heights and all the level rules. |
 | `src/player.js` | Movement, held directions, facing and the walk cycle. |
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
@@ -330,7 +360,7 @@ site and publishes `dist/` to GitHub Pages.
 | `src/audio/index.js` | Starting sound, playing effects, muting. |
 | `src/audio/scores/` | The music and sound effects, as text. |
 | `src/hud.js` | The inventory bar and the stage label at the top of the screen. |
-| `src/input.js` | Keys → held grid directions, and mute. |
+| `src/input.js` | Keys → held grid directions, plus mute, retry and leaving the stage. Asks for the player each time, because between stages there isn't one. |
 | `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
 | `src/camera-follow.js` | Overhead camera that follows the player. |
 | `src/dispose.js` | Hands a stage's geometries and materials back when it is unloaded. |
