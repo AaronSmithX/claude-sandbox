@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_MAP, STAGES, stageLayers } from '../src/levels.js';
+import { LEVEL_RISE } from '../src/tilemap.js';
 import { makeGame, advance, step, walk, at, FRAME } from './helpers/level.js';
 
 /**
@@ -173,7 +174,7 @@ describe('the opening stages', () => {
 
     walk(game, times(2, SOUTH)); // up the stair onto the walkway
     expect(at(game)).toEqual({ gx: 3, gz: 5 });
-    expect(game.player.elevation).toBeCloseTo(0.5);
+    expect(game.player.elevation).toBeCloseTo(LEVEL_RISE);
 
     walk(game, times(4, EAST)); // along the walkway to the top of the chute
     expect(at(game)).toEqual({ gx: 7, gz: 5 });
@@ -276,23 +277,33 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
-  it('lets Heavy Lifting be wedged by one shove too many, which R is for', () => {
+  it('cannot have its crate shoved past the plate by a held direction', () => {
+    // Holding a direction is what a player actually does, and with floor beyond the
+    // plate it used to carry the crate straight over it: the plate then read as held
+    // only because the player was standing on it, and the gate shut the moment they
+    // walked away to use it.
     const game = makeGame(stage('heavy-lifting'));
+    game.player.press(1, 0);
+    advance(game, 3); // long enough to walk the whole corridor
+    game.player.releaseAll();
+    advance(game, 0.5);
 
-    walk(game, times(7, EAST)); // one shove past the plate
-    expect(game.blocks.list[0].gx).toBe(9);
-    expect(at(game)).toEqual({ gx: 8, gz: 1 }); // the player is on the plate now
+    expect(game.blocks.list[0].gx).toBe(8); // parked on the plate, not past it
+    expect(at(game)).toEqual({ gx: 7, gz: 1 });
+    expect(game.tilemap.get(8, 1).pressed).toBe(true);
 
-    // Nothing can put the crate back: there is no tile east of it to push from, and
-    // a crate is never pulled.
-    expect(step(game, 1, 0)).toBe(false);
-
-    // So the only thing holding the gate open is the player, who has to be somewhere
-    // else for it to be any use.
-    expect(game.tilemap.get(5, 4).open).toBe(true);
+    // And the crate is what is holding it, so walking away does not shut it.
     walk(game, times(6, WEST));
-    expect(game.tilemap.get(8, 1).pressed).toBe(false);
-    expect(game.tilemap.get(5, 4).open).toBe(false);
+    expect(game.tilemap.get(8, 1).pressed).toBe(true);
+    expect(game.tilemap.get(5, 4).open).toBe(true);
+  });
+
+  it('keeps its plate out of reach on foot, so the crate is the only way', () => {
+    const game = makeGame(stage('heavy-lifting'));
+    // The crate starts between the player and the plate, and a crate is never pulled,
+    // so there is no route to the plate that does not put the crate on it first.
+    expect(game.blocks.list[0].gx).toBe(3);
+    expect(game.tilemap.get(9, 1).type).toBe('wall'); // the corridor ends at the plate
   });
 
   it('uses the pads in Two Places at Once both ways', () => {

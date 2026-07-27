@@ -98,7 +98,9 @@ like any other floor; only the player slides.
 
 ### Height
 
-Floors can sit higher up, half a tile per level. Two tiles at different heights are
+Floors can sit higher up, **a whole tile per level** — a storey is as tall as a square
+is wide, which is what makes a deck something you can be *under* rather than something
+you wade through. Two tiles at different heights are
 not neighbours: you take a **stair** between them, along the way it runs, or you go
 round. Anything else is a ledge, and a ledge stops you.
 
@@ -122,6 +124,12 @@ Which tile a step lands on is decided by the height you set out from, and since 
 tiles in one cell are never at the same height, that is never a guess. Walk the deck
 at level 1 and the water beneath is somebody else's problem; swim it at level 0 and
 the deck passes overhead. A patrol underneath cannot catch you on the span.
+
+The clearance is deliberate arithmetic: a walker is 0.9 tall, the walk bob lifts it
+0.05 at the top of a stride, and a storey is 1.0 — so a deck is 0.05 thick and a player
+passes beneath one without ever wearing it as a hat. Walls grow too, standing 0.6 above
+the highest ground beside them, or a plateau would come out flush with the wall meant
+to be holding it in.
 
 An **elevator** is the other half of the idea: ground whose height moves. It reads
 the floors around it to learn which storeys it serves, then runs between them on a

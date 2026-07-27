@@ -166,11 +166,16 @@ const GOING_UP = {
 };
 
 /**
- * A crate, a plate and the gate it holds. You cannot hold the plate down yourself and
- * be at the gate at the same time, so the crate has to do it — five shoves east along
- * the top corridor, and not one more: past the plate there is nowhere to stand to push
- * it back, and the stage is over. That is the shape of every crate puzzle, and it is
- * why R exists.
+ * A crate, a plate and the gate it holds.
+ *
+ * The corridor is a dead end one tile past the plate on purpose. Holding a direction
+ * is what a player actually does, and with floor beyond the plate that shoves the crate
+ * straight over it and off the far side — the plate then reads as held only because the
+ * player is standing on it, and the gate shuts the moment they walk away. Walling the
+ * end means the obvious action parks the crate exactly where it belongs.
+ *
+ * The crate also starts between the player and the plate, so the plate cannot be
+ * reached on foot at all: the crate is the only thing that can hold this gate.
  *
  * @type {Stage}
  */
@@ -180,10 +185,10 @@ const HEAVY_LIFTING = {
   hint: 'A <b>crate</b> only moves away from you. A <b>plate</b> holds its gate open.',
   rows: [
     '###########',
-    '#@.B....p.#',
-    '#.#######.#',
+    '#@.B....p##',
+    '#.#########',
     '#.........#',
-    '#.###P###.#',
+    '#.###P#####',
     '#####*#####',
     '###########',
   ],

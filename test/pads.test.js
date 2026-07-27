@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { LEVEL_RISE } from '../src/tilemap.js';
 import { makeMap, makeGame, advance, step, at, FRAME } from './helpers/level.js';
 
 /**
@@ -102,8 +103,8 @@ describe('a pair of pads', () => {
     step(game, 1, 0);
     expect(at(game)).toEqual({ gx: 2, gz: 2 });
     expect(game.player.layer).toBe(1);
-    expect(game.player.mesh.position.y).toBeCloseTo(ground + 0.5);
-    expect(game.player.elevation).toBeCloseTo(0.5);
+    expect(game.player.mesh.position.y).toBeCloseTo(ground + LEVEL_RISE);
+    expect(game.player.elevation).toBeCloseTo(LEVEL_RISE);
   });
 
   it('ends a slide rather than flinging the player on', () => {

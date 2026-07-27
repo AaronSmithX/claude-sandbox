@@ -148,10 +148,11 @@ const COLUMN_RETRACTED_Y = COLUMN_STUB_HEIGHT - 0.5;
 // the tube is what's keeping you up.
 export const WATER_SINK = 0.24;
 
-// How far one level of elevation lifts a tile. Half a tile: enough that a plateau
-// reads as being above the floor at this camera angle, and low enough that a
-// single stride up onto a stair still looks like a step rather than a climb.
-export const LEVEL_RISE = 0.5;
+// How far one level of elevation lifts a tile: a whole tile, so a storey is as tall as
+// a square is wide. Anything less and a deck is not something you can be *under* — a
+// walker is about 0.9 tall, and at half a tile they wade through the planks chest-high
+// instead of passing beneath them.
+export const LEVEL_RISE = TILE_SIZE;
 
 // The tile types that join two heights. Neither is ground you can arrive at from
 // the side: you take them along their run or not at all.
@@ -184,6 +185,12 @@ const PLATE_DOWN_Y = 0.015;
 // A gate's bars: standing in the doorway, or dropped into the floor out of the way.
 const GATE_SHUT_Y = 0.5;
 const GATE_OPEN_Y = -0.55;
+
+// How far a wall stands above the highest ground beside it. Chest height on the tile
+// you are standing on: unmistakably a wall, without a storey of stone between the
+// camera and everything behind it.
+const WALL_PARAPET = 0.6;
+const WALL_MIN_HEIGHT = 1.0;
 
 // Floor buttons: the grey plate they sit on, and the button's height when up and
 // when pressed.
@@ -1119,7 +1126,15 @@ export class TileMap {
 
   _build() {
     const floorGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.2, TILE_SIZE * 0.98);
-    const wallGeo = new THREE.BoxGeometry(TILE_SIZE, 1.0, TILE_SIZE);
+
+    // One wall geometry per distinct height, shared by every wall that tall.
+    const wallGeos = new Map();
+    const wallGeoFor = (height) => {
+      if (!wallGeos.has(height)) {
+        wallGeos.set(height, new THREE.BoxGeometry(TILE_SIZE, height, TILE_SIZE));
+      }
+      return wallGeos.get(height);
+    };
     const waterGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98);
 
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x2f5d3a, roughness: 0.9 });
@@ -1180,8 +1195,11 @@ export class TileMap {
       }
 
       if (tile.type === 'wall') {
-        const mesh = new THREE.Mesh(wallGeo, wallMat);
-        mesh.position.set(world.x, 0.5, world.z);
+        // A wall stands above the ground beside it, or a plateau comes out flush with
+        // the wall that is meant to be holding it in.
+        const top = Math.max(WALL_MIN_HEIGHT, this._tallestNeighbour(tile) + WALL_PARAPET);
+        const mesh = new THREE.Mesh(wallGeoFor(top), wallMat);
+        mesh.position.set(world.x, top / 2, world.z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.group.add(mesh);
@@ -1235,6 +1253,26 @@ export class TileMap {
       if (feature) this.group.add(feature);
 
     }
+  }
+
+  /**
+   * The height of the tallest ground next to a tile, for sizing a wall.
+   *
+   * Ground only: a ramp is measured by the floors it joins, not by its own halfway
+   * height, or the wall beside a staircase would come out a hand taller than the wall
+   * beside it for no reason a player could see. A platform counts for the top of its
+   * travel, since that is where it will be standing when it matters.
+   */
+  _tallestNeighbour(tile) {
+    let tallest = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const neighbour of this.column(tile.gx + dx, tile.gz + dz)) {
+        if (neighbour.type === 'wall' || RAMPS.has(neighbour.type)) continue;
+        const level = neighbour.type === 'elevator' ? (neighbour.high ?? 0) : neighbour.level;
+        tallest = Math.max(tallest, level * LEVEL_RISE);
+      }
+    }
+    return tallest;
   }
 
   /** How far one tile of a chute falls, in world units. */
@@ -1531,6 +1569,13 @@ function buildDoor(material, panelMaterial) {
   return { group, swing };
 }
 
+// How thick a deck is. The walking surface sits at the level, so the slab hangs below
+// it, and every bit of thickness is headroom taken from whatever passes underneath.
+// The arithmetic is tight and deliberate: a walker is 0.9 tall, the walk bob lifts it
+// 0.05 at the top of a stride, and a storey is 1.0 — so 0.05 is what a deck may have
+// if a player is to pass beneath one without ever wearing it as a hat.
+const DECK_THICKNESS = 0.05;
+
 // Three treads to a stair. Enough that it reads as a staircase from this camera
 // distance, few enough that each tread is a chunky block rather than a sliver.
 const STAIR_TREADS = 3;
@@ -1617,10 +1662,10 @@ function buildDeck(height, surfaceMaterial, legMaterial) {
   const group = new THREE.Group();
 
   const span = new THREE.Mesh(
-    new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98),
+    new THREE.BoxGeometry(TILE_SIZE * 0.98, DECK_THICKNESS, TILE_SIZE * 0.98),
     surfaceMaterial,
   );
-  span.position.y = height - 0.06;
+  span.position.y = height - DECK_THICKNESS / 2;
   span.castShadow = true;
   span.receiveShadow = true;
   group.add(span);
@@ -1633,7 +1678,7 @@ function buildDeck(height, surfaceMaterial, legMaterial) {
     [0.36, 0.36],
   ]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, legHeight, 0.1), legMaterial);
-    leg.position.set(ox, height - 0.12 - legHeight / 2, oz);
+    leg.position.set(ox, height - DECK_THICKNESS - legHeight / 2, oz);
     leg.castShadow = true;
     group.add(leg);
   }

@@ -113,6 +113,20 @@ describe('a crate', () => {
     expect(enemies.list[0].gx).toBe(1); // turned round rather than walking through
   });
 
+  it('can be shoved somewhere it can never come back from', () => {
+    // The wedge every crate puzzle has: a crate against a wall cannot be pulled, and
+    // there is nowhere to stand on the far side of it to push. R restarts the stage.
+    const game = makeGame(['######', '#@B..#', '######']);
+    step(game, 1, 0);
+    step(game, 1, 0);
+    expect(crateOf(game).gx).toBe(4); // hard against the east wall
+
+    expect(step(game, 1, 0)).toBe(false); // nothing left to give
+    expect(at(game)).toEqual({ gx: 3, gz: 1 });
+    // And no way round: the crate fills the only tile east of the player.
+    expect(game.tilemap.get(5, 1).type).toBe('wall');
+  });
+
   it('goes back where it started when the stage is retried', () => {
     const game = makeGame(['######', '#@B..#', '######']);
     step(game, 1, 0);
