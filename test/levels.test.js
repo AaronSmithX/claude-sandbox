@@ -1,19 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { TileMap, KEY_COLORS } from '../src/tilemap.js';
-import { STAGES, stageLayers } from '../src/levels.js';
-import { reachableFrom, sealedIn, tileKey, tilesOfType } from './helpers/reach.js';
+import { STAGES } from '../src/levels.js';
+import { checkStage } from '../src/level-checks.js';
 
 /**
- * The checks every stage has to pass, run over the whole list. These are the
- * mistakes that are easy to make while authoring a map and impossible to see by
- * reading it: a star behind a wall, a door with no key anywhere, a switch that
- * seals you in, a door with no wall to fill.
+ * Every shipped stage, held to the checks in `src/level-checks.js`.
  *
- * They are not a solver. A stage that passes these can still be a bad stage; a
- * stage that fails one cannot be finished at all.
+ * The checks themselves live there rather than here because the level editor runs
+ * the same ones while a map is being typed. What this file is for is running them
+ * over the stage list in CI, one `it` per check so a failure names both the stage
+ * and the question it failed.
  */
-
-const parse = (stage) => new TileMap(stageLayers(stage), { build: false });
 
 describe('the stage list', () => {
   it('has stages, each with a unique id', () => {
@@ -32,83 +28,12 @@ describe('the stage list', () => {
 
 for (const stage of STAGES) {
   describe(`stage: ${stage.name}`, () => {
-    it('parses', () => {
-      expect(() => parse(stage)).not.toThrow();
-    });
-
-    it('builds its meshes', () => {
-      // The headless checks below never touch the mesh code, so this is what says
-      // a stair, a chute or a raised floor can actually be put on the screen.
-      expect(() => new TileMap(stageLayers(stage), { build: true })).not.toThrow();
-    });
-
-    it('has exactly one spawn', () => {
-      expect(tilesOfType(parse(stage), 'spawn')).toHaveLength(1);
-    });
-
-    it('has a star to find', () => {
-      expect(tilesOfType(parse(stage), 'star').length).toBeGreaterThan(0);
-    });
-
-    it('can be walked from the spawn to the star', () => {
-      const map = parse(stage);
-      const reachable = reachableFrom(map);
-      for (const star of tilesOfType(map, 'star')) {
-        expect(
-          reachable.has(tileKey(star)),
-          `the star at ${star.gx},${star.gz} is walled off from the spawn`,
-        ).toBe(true);
-      }
-    });
-
-    it('has a key somewhere for every door', () => {
-      const map = parse(stage);
-      for (const color of Object.keys(KEY_COLORS)) {
-        const doors = tilesOfType(map, 'door').filter((t) => t.color === color);
-        const keys = tilesOfType(map, 'key').filter((t) => t.color === color);
-        expect(
-          keys.length,
-          `${doors.length} ${color} door(s) but ${keys.length} ${color} key(s)`,
-        ).toBeGreaterThanOrEqual(doors.length);
-      }
-    });
-
-    it('has a plate somewhere for every gate', () => {
-      const map = parse(stage);
-      for (const gate of tilesOfType(map, 'gate')) {
-        const plates = tilesOfType(map, 'plate').filter((t) => t.color === gate.color);
-        expect(
-          plates.length,
-          `the ${gate.color} gate at ${gate.gx},${gate.gz} has no plate to hold it`,
-        ).toBeGreaterThan(0);
-      }
-    });
-
-    it('gives every door and gate a wall to span', () => {
-      const map = parse(stage);
-      const solid = (gx, gz) => {
-        const t = map.get(gx, gz);
-        return !t || t.type === 'wall';
-      };
-      for (const door of [...tilesOfType(map, 'door'), ...tilesOfType(map, 'gate')]) {
-        const acrossX = solid(door.gx - 1, door.gz) && solid(door.gx + 1, door.gz);
-        const acrossZ = solid(door.gx, door.gz - 1) && solid(door.gx, door.gz + 1);
-        expect(
-          acrossX || acrossZ,
-          `the door at ${door.gx},${door.gz} stands in the open`,
-        ).toBe(true);
-      }
-    });
-
-    it('has no switch that can seal the player in', () => {
-      const map = parse(stage);
-      for (const tile of tilesOfType(map, 'switch')) {
-        expect(
-          sealedIn(map, tile),
-          `the ${tile.color} switch at ${tile.gx},${tile.gz} can be cut off from the spawn`,
-        ).toEqual([]);
-        map.reset();
-      }
-    });
+    // The checks are run once, up front: a stage that does not parse yields the one
+    // failure that says so rather than nine that all mean it.
+    for (const check of checkStage(stage)) {
+      it(check.label, () => {
+        expect(check.problems.join('\n')).toBe('');
+      });
+    }
   });
 }

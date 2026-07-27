@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tile Runner — Level Editor</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%2378d0ff'/></svg>"
+    />
+    <style>
+      /* The game's palette, laid out for a desk rather than a phone: two columns,
+         text on the left and the level on the right. None of index.html's CSS is
+         reused — that is overlays, a HUD and touch controls, and there are none here. */
+      :root {
+        color-scheme: dark;
+        --bg: #0b1020;
+        --panel: rgba(10, 16, 32, 0.6);
+        --line: rgba(120, 150, 220, 0.25);
+        --ink: #dfe7ff;
+        --dim: #8b9ac4;
+        --accent: #78d0ff;
+        --bad: #ff8080;
+        --good: #7ee0a0;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font-size: 14px;
+      }
+      body {
+        display: grid;
+        grid-template-columns: minmax(360px, 36%) 1fr;
+      }
+      canvas {
+        display: block;
+      }
+
+      /* --- Left: the text ------------------------------------------------ */
+      #editor {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        overflow-y: auto;
+        border-right: 1px solid var(--line);
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      header a {
+        color: var(--dim);
+        font-size: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .row > * {
+        min-width: 0;
+      }
+      label {
+        display: block;
+        color: var(--dim);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      input,
+      select {
+        width: 100%;
+      }
+      button {
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button[aria-pressed='true'] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      textarea {
+        width: 100%;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.35;
+        white-space: pre;
+        overflow: auto;
+        resize: vertical;
+        tab-size: 1;
+      }
+      #grid {
+        min-height: 260px;
+        flex: 1 1 auto;
+      }
+      #legend {
+        min-height: 68px;
+      }
+
+      /* --- Problems ------------------------------------------------------ */
+      #problems {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px 10px;
+      }
+      #problems ul {
+        list-style: none;
+      }
+      #problems li {
+        display: flex;
+        gap: 8px;
+        padding: 2px 0;
+        line-height: 1.35;
+      }
+      #problems li::before {
+        content: '✓';
+        color: var(--good);
+      }
+      #problems li.is-bad::before {
+        content: '✗';
+        color: var(--bad);
+      }
+      #problems li.is-bad {
+        color: var(--bad);
+      }
+      #problems .label {
+        color: var(--dim);
+      }
+
+      /* --- Glyph reference ----------------------------------------------- */
+      details summary {
+        cursor: pointer;
+        color: var(--dim);
+        font-size: 12px;
+      }
+      #glyph-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 2px 12px;
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      #glyph-list div {
+        display: flex;
+        gap: 8px;
+      }
+      #glyph-list b {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--accent);
+        width: 1.2em;
+        text-align: center;
+      }
+      #glyph-list span {
+        color: var(--dim);
+      }
+
+      /* --- Right: the level ---------------------------------------------- */
+      #preview {
+        position: relative;
+        overflow: hidden;
+      }
+      body.is-playing #preview {
+        box-shadow: inset 0 0 0 2px var(--accent);
+      }
+      #tools {
+        position: absolute;
+        left: 16px;
+        top: 16px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #tools .hint {
+        color: var(--dim);
+        font-size: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      #toast {
+        position: absolute;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px 14px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+      #toast.is-shown {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <section id="editor">
+      <header>
+        <h1>Level editor</h1>
+        <a href="./index.html">Play the game →</a>
+      </header>
+
+      <div class="row">
+        <select id="stage-picker" aria-label="Load an existing stage"></select>
+        <button id="copy" type="button">Copy stage</button>
+      </div>
+
+      <div class="row">
+        <div style="flex: 1"><label for="field-id">id</label><input id="field-id" /></div>
+        <div style="flex: 1">
+          <label for="field-name">name</label><input id="field-name" />
+        </div>
+      </div>
+      <div><label for="field-hint">hint</label><input id="field-hint" /></div>
+
+      <div style="display: flex; flex-direction: column; flex: 1 1 auto">
+        <label for="grid">grid — one character per tile, <code>---</code> starts a layer</label>
+        <textarea id="grid" spellcheck="false" wrap="off" autocomplete="off"></textarea>
+      </div>
+
+      <div>
+        <label for="legend">legend — <code>char = name</code>, one per line</label>
+        <textarea id="legend" spellcheck="false" wrap="off" autocomplete="off"></textarea>
+      </div>
+
+      <div id="problems"></div>
+
+      <details>
+        <summary>Glyphs</summary>
+        <div id="glyph-list"></div>
+      </details>
+    </section>
+
+    <section id="preview">
+      <div id="tools">
+        <button id="mode" type="button" aria-pressed="false">Play</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="fit" type="button">Fit</button>
+        <span class="hint" id="mode-hint">Drag to orbit, scroll to zoom</span>
+      </div>
+      <div id="toast"></div>
+    </section>
+
+    <script type="module" src="/src/editor/main.js"></script>
+  </body>
+</html>

@@ -78,6 +78,11 @@ array of further grids if it needs a deck over something, and
 `test/levels.test.js` will hold the new map to the same checks as the rest (one
 spawn, a reachable star, a key for every door, no switch that can seal you in).
 
+The characters are a *dialect*, not the vocabulary. What a mechanic actually claims is
+a name — `key:gold`, `switch:red/pressed`, `floor:2` — and `src/glyphs.js` binds the
+characters most stages use to the names they mean. A stage can bind its own on top of
+that, so nothing is capped at however many punctuation marks are still free.
+
 ## How to play
 
 Find the **star** on each stage. The HUD along the top shows what this stage
@@ -254,6 +259,29 @@ npm run dev
 
 Then open the URL Vite prints (usually http://localhost:5173/claude-sandbox/).
 
+### The level editor
+
+There is a second page beside the game, at
+http://localhost:5173/claude-sandbox/editor.html. The level's text is on the left and
+the level itself is on the right, rebuilt a quarter of a second after you stop typing.
+
+- **The grid box** is one character per tile. A line of `---` starts another layer,
+  ground first, which is how a bridge gets a deck over its water. Upper layers are
+  padded out with spaces for you, so only the deck has to be typed.
+- **The legend box** binds characters this stage wants for itself, one `k = key:rust`
+  per line. `//` starts a comment.
+- **The panel underneath** lists what is wrong. Some of it is the parser — a ragged
+  row, a character that is not in the legend, a chute that bends. The rest is
+  `src/level-checks.js`, which asks whether the level can be *finished*: one spawn, a
+  star you can walk to, a key for every door, no switch that seals you in. It is the
+  same code the test suite holds the shipped stages to, so a level the editor is happy
+  with is a level CI will be happy with.
+- **Play** walks the level with the real simulation — the same `tickWorld` the game
+  runs. Escape stops. In look mode the mouse orbits and scrolls to zoom.
+- **Copy stage** puts the whole `const` on the clipboard, quoted and indented the way
+  `src/levels.js` already is; paste it in and add it to `STAGES`. The draft in the
+  boxes survives a reload, and the dropdown opens any shipped stage to start from.
+
 To produce a production build in `dist/`:
 
 ```bash
@@ -343,12 +371,13 @@ site and publishes `dist/` to GitHub Pages.
 | `index.html` | Page shell, canvas, hint, HUD, mute and exit buttons, D-pad and overlay markup/styles. |
 | `src/main.js` | Renderer, scene, camera, lights, wiring, stage loading, and the render loop. |
 | `src/world.js` | One simulation step: update order and the collision check, shared with the tests. |
-| `src/levels.js` | The stages: rows of legend characters, and nothing else. |
+| `src/levels.js` | The stages: rows of legend characters, and nothing else — plus a `legend` of its own, for a stage that wants one. |
 | `src/campaign.js` | Which stage you are on and what happens next: title, levels, playing, clear, dead, complete — which levels are open, and whether there is a stage at all. |
 | `src/stage-scene.js` | Everything one stage puts on the screen, built together and thrown away together. |
 | `src/progress.js` | What has been cleared, saved to local storage and read back. |
 | `src/level-select.js` | The level list's rows: padlocks, question marks and stars. |
-| `src/tilemap.js` | One loaded stage: tile meshes, layers, heights and all the level rules. |
+| `src/tilemap.js` | One loaded stage: tile meshes, layers, heights and all the level rules. `LEGEND` here is the vocabulary — every kind of tile there is, by name. |
+| `src/glyphs.js` | The default dialect: which character means which tile, before a stage says otherwise. |
 | `src/player.js` | Movement, held directions, facing and the walk cycle. |
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
 | `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
@@ -364,16 +393,23 @@ site and publishes `dist/` to GitHub Pages.
 | `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
 | `src/camera-follow.js` | Overhead camera that follows the player. |
 | `src/dispose.js` | Hands a stage's geometries and materials back when it is unloaded. |
+| `src/reach.js` | Flood fill over a parsed map: what can be walked to from the spawn, and which switches can seal you in. |
+| `src/level-checks.js` | The checks a stage has to pass, as data — run by the suite over `STAGES` and by the editor over a draft. |
+| `editor.html` | The level editor's page: text on the left, preview on the right. |
+| `src/editor/draft.js` | The editor's text format, both ways, and the stage literal the copy button produces. |
+| `src/editor/preview.js` | The editor's viewport: `src/main.js`'s renderer and stage loading, with the campaign left out. |
+| `src/editor/main.js` | The editor's wiring: fields, debounce, problems panel, load and copy. |
 | `test/` | Vitest suite, built on miniature levels. |
 | `src/types.js` | JSDoc shapes shared across the code: a tile, a direction, the world. |
-| `vite.config.js` | Pages base path, and the test runner's config. |
+| `vite.config.js` | Pages base path, both HTML entry points, and the test runner's config. |
 | `tsconfig.json` | Type checking for `src/`; `tsconfig.tests.json` for the suite. |
 
 ## Making it your own
 
-- **Add or redesign a stage:** edit `src/levels.js`. Each stage is a
-  `{ id, name, hint, rows }` entry, and `rows` is a grid of characters, documented
-  by the `LEGEND` in `src/tilemap.js`:
+- **Add or redesign a stage:** edit `src/levels.js`, or draw it in the [level
+  editor](#the-level-editor) and paste the result in. Each stage is a
+  `{ id, name, hint, rows }` entry, and `rows` is a grid of characters. The
+  characters most stages use are bound in `src/glyphs.js`:
 
   ```
   #  wall          .  floor        ~  water       @  player spawn
@@ -401,6 +437,36 @@ site and publishes `dist/` to GitHub Pages.
   Uppercase is the thing that blocks you, lowercase its unblocked partner. A
   switch swaps the two groups of its colour, so pair `X` with `x` to make one
   press open a path and close another.
+
+- **Give a stage a character of its own:** add a `legend` to it. Each character is
+  bound to a name from the `LEGEND` in `src/tilemap.js`, which is the real vocabulary —
+  a type, narrowed up to twice:
+
+  ```
+  type                  what it is      wall, floor, water, ice, stair, slide,
+                                        elevator, crate, spawn, star, tube
+  type:variant          which one       key:gold, pad:a, plate:red, floor:1
+  type:variant/state    how it starts   switch:red/pressed, elevator/top,
+                                        obstacle:red/retracted
+  ```
+
+  ```js
+  const DEEP_WATER = {
+    id: 'deep-water',
+    legend: { k: 'key:rust', K: 'door:rust', '^': 'floor:4' },
+    rows: [ /* ... */ ],
+  };
+  ```
+
+  A stage's legend is merged over the dialect, so `{ '.': 'water' }` floods that one
+  stage and no other. Two stages may use `k` for two different things. A value can also
+  be a def written out in full — `{ T: { type: 'floor', enemy: 'clockwise' } }` — for a
+  one-off with no name.
+
+- **Add a colour:** add it to `KEY_COLORS`, `SWITCH_COLORS` or `PAD_COLORS` in
+  `src/tilemap.js`. The names follow on their own — a new switch colour brings
+  `switch:`, `plate:`, `gate:` and both `obstacle:` states with it — and then a stage
+  binds whatever characters it wants for them.
 
   Two things to watch when placing switches. A colour with only one switch is
   one-way: after that press it is spent. And never put a switch behind a column

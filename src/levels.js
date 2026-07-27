@@ -1,10 +1,10 @@
 /**
  * The stages, in the order they are played.
  *
- * Level *content* lives here; the rules that give the characters meaning live in
- * `src/tilemap.js` (see LEGEND there for what each one means). Keeping them apart
- * means a new stage is a data change, and a new mechanic is a code change, and the
- * two never have to happen in the same file.
+ * Level *content* lives here; the rules live in `src/tilemap.js` (LEGEND there is the
+ * vocabulary — every kind of tile there is, by name) and the characters that stand for
+ * them in `src/glyphs.js`. Keeping them apart means a new stage is a data change, and a
+ * new mechanic is a code change, and the two never have to happen in the same file.
  *
  * Each stage teaches one thing and then asks for it once more. The last one is the
  * whole vocabulary at once — everything the earlier stages introduced, on a single
@@ -18,6 +18,10 @@
  * @property {string[][]} [upper]  further layers above the ground, lowest first — a
  *   space means "nothing here". This is what a bridge needs: a deck in the same cell
  *   as the water it crosses.
+ * @property {import('./types.js').Legend} [legend]  characters this stage binds for
+ *   itself, merged over the default dialect in `src/glyphs.js`. A stage needs one only
+ *   when it wants something the dialect has no character for — `{ k: 'key:rust' }` —
+ *   or when a different character would read better on this particular map.
  */
 
 /**
@@ -76,11 +80,15 @@ const THIN_ICE = {
   hint: 'Step onto <b>ice</b> and you keep going until something stops you.',
   rows: [
     '##########',
+    '###..*..##',
+    '###.....##',
+    '####G#####',
     '#@..iiii.#',
-    '########.#',
+    '####iii#.#',
     '#.iiii...#',
-    '#.########',
-    '#..iiiii*#',
+    '#.#i.#####',
+    '#..i.ii..#',
+    '#####g...#',
     '##########',
   ],
 };
@@ -126,15 +134,16 @@ const OVER_AND_UNDER = {
     '#@..~~~...#',
     "#./'~~~'/.#",
     '#...~~~...#',
-    '#...~~~...#',
-    '#...~~~.O.#',
+    "#...~~~...#",
+    "#...~'~...#",
+    '#...~/~.O.#',
     '#...~*~...#',
     '#...~~~...#',
     '###########',
   ],
   // The deck: one span at level 1, over water that stays water.
   upper: [
-    ['           ', '           ', '    ...    ', '           ', '           ', '           ', '           ', '           ', '           '],
+    ['           ', '           ', '    ...    ', '           ', '           ', '     *     ', '           ', '           ', '           ', '           '],
   ],
 };
 

@@ -71,6 +71,14 @@
  */
 
 /**
+ * What the characters of a map mean: each one bound to a name from the vocabulary in
+ * `src/tilemap.js`, or to a def written out in full for a one-off that isn't worth a
+ * name. `src/glyphs.js` holds the dialect every map starts from; a stage's own legend
+ * is merged over it.
+ * @typedef {Record<string, string | TileDef>} Legend
+ */
+
+/**
  * One simulation step's worth of world: what `tickWorld` is handed. The tilemap and
  * the enemies are swapped when a stage changes; the rest live for the whole run.
  *

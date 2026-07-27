@@ -1,13 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { TileMap } from '../src/tilemap.js';
+import { TileMap, tileDef, KEY_COLORS, SWITCH_COLORS } from '../src/tilemap.js';
+import { GLYPHS } from '../src/glyphs.js';
 import { DEFAULT_MAP } from '../src/levels.js';
 import { Inventory } from '../src/inventory.js';
 import { makeMap } from './helpers/level.js';
-import { reachableFrom, sealedIn } from './helpers/reach.js';
+import { reachableFrom, sealedIn } from '../src/reach.js';
 
 describe('TileMap parsing', () => {
-  it('rejects an unknown legend character', () => {
-    expect(() => makeMap(['###', '#?#', '###'])).toThrow(/Unknown map character/);
+  it('rejects a character the legend does not bind, and says where', () => {
+    expect(() => makeMap(['###', '#?#', '###'])).toThrow(
+      /Map character "\?" at 1,1 is not in the legend/,
+    );
   });
 
   it('rejects a ragged row, rather than reading past its end', () => {
@@ -56,6 +59,75 @@ describe('TileMap parsing', () => {
     // The one test that touches the real map: it is the only thing that would
     // catch a typo in a level edit.
     expect(() => new TileMap(DEFAULT_MAP, { build: false })).not.toThrow();
+  });
+});
+
+describe('the legend', () => {
+  it('binds every character of the default dialect to a real tile', () => {
+    // The dialect and the vocabulary live in different files and nothing else makes
+    // them agree, so a name renamed on one side and not the other would otherwise go
+    // unnoticed until a stage that happens to use it failed to load.
+    for (const [char, name] of Object.entries(GLYPHS)) {
+      expect(tileDef(name), `"${char}" is bound to "${name}", which is not a tile`)
+        .not.toBeNull();
+    }
+  });
+
+  it('gives every colour in a palette the tiles that can wear it', () => {
+    // What the format promises: a colour is a line in a palette, and nothing else.
+    for (const color of Object.keys(KEY_COLORS)) {
+      expect(tileDef(`key:${color}`)).toEqual({ type: 'key', color });
+      expect(tileDef(`door:${color}`)).toEqual({ type: 'door', color });
+    }
+    for (const color of Object.keys(SWITCH_COLORS)) {
+      expect(tileDef(`switch:${color}`)).toEqual({ type: 'switch', color });
+      expect(tileDef(`plate:${color}`)).toEqual({ type: 'plate', color });
+      expect(tileDef(`gate:${color}`)).toEqual({ type: 'gate', color });
+    }
+  });
+
+  it('reads a floor at any level, not just the two there were characters for', () => {
+    const map = makeMap(['###', '#T#', '###'], { legend: { T: 'floor:7' } });
+    expect(map.get(1, 1).type).toBe('floor');
+    expect(map.get(1, 1).level).toBe(7);
+  });
+
+  it('lets a map bind a character the dialect has no use for', () => {
+    const map = makeMap(['###', '#k#', '###'], { legend: { k: 'key:gold' } });
+    expect(map.get(1, 1)).toMatchObject({ type: 'key', color: 'gold' });
+  });
+
+  it('takes a def written out in full, for a one-off with no name', () => {
+    const map = makeMap(['###', '#T#', '###'], {
+      legend: { T: { type: 'floor', enemy: 'clockwise' } },
+    });
+    expect(map.enemySpawns).toEqual([{ gx: 1, gz: 1, pattern: 'clockwise' }]);
+  });
+
+  it('lets a map override a character the dialect already binds', () => {
+    const flooded = makeMap(['###', '#.#', '###'], { legend: { '.': 'water' } });
+    expect(flooded.get(1, 1).type).toBe('water');
+  });
+
+  it('leaves the dialect alone for the next map', () => {
+    // The merge has to be a copy: a stage that rebinds `.` must not flood every stage
+    // loaded after it.
+    makeMap(['###', '#.#', '###'], { legend: { '.': 'water' } });
+    expect(makeMap(['###', '#.#', '###']).get(1, 1).type).toBe('floor');
+  });
+
+  it('rejects a binding to a tile that does not exist', () => {
+    expect(() => makeMap(['###', '#k#', '###'], { legend: { k: 'key:rust' } })).toThrow(
+      /Legend binds "k" to "key:rust", which is not a tile/,
+    );
+  });
+
+  it('rejects a bad binding even where the map never uses it', () => {
+    // A typo in a legend is a mistake whether or not this particular map trips over
+    // it, and saying so at load beats saying so on the one stage that does.
+    expect(() => makeMap(['###', '#@#', '###'], { legend: { k: 'key:rust' } })).toThrow(
+      /is not a tile/,
+    );
   });
 });
 
@@ -435,9 +507,9 @@ describe('switches that start down', () => {
 });
 
 describe('no switch can seal the player in', () => {
-  // The flood fill and the two-phase check live in test/helpers/reach.js, because
-  // test/levels.test.js runs them over every stage. What is left here is the pair
-  // of cases that prove the check itself works.
+  // The flood fill and the two-phase check live in src/reach.js, because
+  // src/level-checks.js runs them over every stage — for the suite and the level
+  // editor both. What is left here is the pair of cases that prove the check works.
 
   it('holds for every switch in the shipped level', () => {
     const map = new TileMap(DEFAULT_MAP, { build: false });

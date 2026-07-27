@@ -16,23 +16,27 @@ import { tickWorld } from '../../src/world.js';
 /**
  * A headless tilemap from an inline level. No meshes are built.
  * @param {string[]|string[][]} rows one layer of the level, or several, ground first
- * @param {{build?: boolean}} [options] `build` asks for the meshes as well, which
- *   is what a test about what the player can *see* needs.
+ * @param {{build?: boolean, legend?: import('../../src/types.js').Legend}} [options]
+ *   `build` asks for the meshes as well, which is what a test about what the player
+ *   can *see* needs. `legend` binds characters for this fixture only, the way a stage
+ *   does; leave it out and the default dialect is all there is.
  */
-export function makeMap(rows, { build = false } = {}) {
-  return new TileMap(rows, { build });
+export function makeMap(rows, { build = false, legend } = {}) {
+  return new TileMap(rows, { build, legend });
 }
 
 /**
  * A whole headless game, wired the way main.js wires it.
  * @param {string[]|string[][]} rows the miniature level, one layer or several
- * @param {{enemies?: {interval?: number, phase?: number}, build?: boolean}} [options]
+ * @param {{enemies?: {interval?: number, phase?: number}, build?: boolean,
+ *   legend?: import('../../src/types.js').Legend}} [options]
  *   `enemies` overrides the pacing of every enemy, so a test can say "one step
  *   per second, starting now" instead of depending on the production tables.
  *   `build` builds the meshes too, for tests about what a thing looks like.
+ *   `legend` binds characters for this fixture only.
  */
-export function makeGame(rows, { enemies: enemyOptions, build = false } = {}) {
-  const tilemap = makeMap(rows, { build });
+export function makeGame(rows, { enemies: enemyOptions, build = false, legend } = {}) {
+  const tilemap = makeMap(rows, { build, legend });
   const inventory = new Inventory();
   const player = new Player(tilemap, inventory);
   const enemies = new Enemies(tilemap, enemyOptions);

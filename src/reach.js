@@ -10,9 +10,14 @@
  * The fill walks *tiles*, not cells, so it understands layers and heights: it asks
  * the map which tile a step lands on, which makes a ledge a closed edge and a chute
  * a one-way one.
+ *
+ * This lives under `src/` rather than with the tests because the level editor asks
+ * the same questions while a map is being typed, and the answer a stage is held to
+ * in CI had better be the answer the editor gave. Nothing the game itself imports
+ * reaches it, so it stays out of the game's bundle.
  */
 
-/** @type {import('../../src/types.js').Direction[]} */
+/** @type {import('./types.js').Direction[]} */
 const DIRECTIONS = [
   [1, 0],
   [-1, 0],
@@ -22,7 +27,7 @@ const DIRECTIONS = [
 
 /**
  * How a tile is named in the returned set: a cell plus which layer of it.
- * @param {import('../../src/types.js').Tile} tile
+ * @param {import('./types.js').Tile} tile
  */
 export const tileKey = (tile) => `${tile.gx},${tile.gz},${tile.layer}`;
 
@@ -30,21 +35,25 @@ export const tileKey = (tile) => `${tile.gx},${tile.gz},${tile.layer}`;
  * A platform is joined to every storey it serves, however it happens to be parked
  * when the map is parsed — over the course of a stage it visits all of them.
  *
- * @param {import('../../src/types.js').Tile} a
- * @param {import('../../src/types.js').Tile} b
+ * @param {import('./types.js').Tile} a
+ * @param {import('./types.js').Tile} b
  */
 function servedByElevator(a, b) {
   const lift = a.type === 'elevator' ? a : b.type === 'elevator' ? b : null;
   if (!lift) return false;
   const other = lift === a ? b : a;
   if (other.type === 'stair' || other.type === 'slide') return false;
+  // A platform gets its travel from `_deriveElevators`, which refuses a lift that
+  // goes nowhere — so an elevator without one has not been derived, and serves
+  // nothing yet.
+  if (lift.low === undefined || lift.high === undefined) return false;
   return other.level >= lift.low - 1e-6 && other.level <= lift.high + 1e-6;
 }
 
 /**
  * Flood fill from the spawn.
  *
- * @param {import('../../src/tilemap.js').TileMap} map
+ * @param {import('./tilemap.js').TileMap} map
  * @param {?string} [color] the colour whose raised obstacles block. Every other
  *   colour's obstacles are treated as passable, so one colour's puzzle cannot mask
  *   another's. The default, `null`, ignores obstacles altogether — which is what
@@ -55,9 +64,14 @@ function servedByElevator(a, b) {
 export function reachableFrom(map, color = null) {
   const start = map.findSpawn();
   const first = map.get(start.gx, start.gz);
+  // An unparsed map has no spawn tile to stand on, and nothing is reachable from
+  // nowhere. The editor asks this of maps that are still being typed.
+  if (!first) return new Set();
+
   const seen = new Set([tileKey(first)]);
   const queue = [first];
 
+  /** @param {?import('./types.js').Tile} t */
   const passable = (t) => {
     if (!t || t.type === 'wall') return false;
     if (t.type === 'obstacle' && color !== null) {
@@ -67,7 +81,7 @@ export function reachableFrom(map, color = null) {
   };
 
   while (queue.length) {
-    const tile = queue.shift();
+    const tile = /** @type {import('./types.js').Tile} */ (queue.shift());
 
     // A pad is an edge to the far side of the map, not to a neighbour.
     if (tile.type === 'pad' && tile.partner && !seen.has(tileKey(tile.partner))) {
@@ -95,8 +109,8 @@ export function reachableFrom(map, color = null) {
  * two presses — one to open the way in, and then the one inside, which closes it
  * again. Since either phase can be the one you arrive at, both have to be safe.
  *
- * @param {import('../../src/tilemap.js').TileMap} map
- * @param {import('../../src/types.js').Tile} tile
+ * @param {import('./tilemap.js').TileMap} map
+ * @param {import('./types.js').Tile} tile
  * @returns {string[]} the offending phases, empty when the switch is always safe
  */
 export function sealedIn(map, tile) {
@@ -108,7 +122,7 @@ export function sealedIn(map, tile) {
 
 /**
  * Every tile of a given type, on every layer, in row-major order.
- * @param {import('../../src/tilemap.js').TileMap} map
+ * @param {import('./tilemap.js').TileMap} map
  * @param {string} type
  */
 export function tilesOfType(map, type) {

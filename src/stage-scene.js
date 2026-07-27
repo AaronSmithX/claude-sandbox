@@ -21,7 +21,7 @@ import { stageLayers } from './levels.js';
 export class StageScene {
   /** @param {import('./levels.js').Stage} stage */
   constructor(stage) {
-    this.tilemap = new TileMap(stageLayers(stage));
+    this.tilemap = new TileMap(stageLayers(stage), { legend: stage.legend });
     this.enemies = new Enemies(this.tilemap);
     this.blocks = new Blocks(this.tilemap);
 

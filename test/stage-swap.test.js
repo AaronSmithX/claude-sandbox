@@ -87,6 +87,18 @@ describe('a stage on the screen', () => {
     ]);
   });
 
+  it('loads a stage that binds characters of its own', () => {
+    // A stage's legend has to survive the trip from the stage list into the map, or a
+    // stage that binds `k` is a stage that cannot be loaded at all.
+    const scene = new StageScene({
+      ...STAGE,
+      legend: { k: 'key:gold' },
+      rows: ['######', '#@.k.#', '#..-.#', '#...*#', '######'],
+    });
+
+    expect(scene.tilemap.get(3, 1)).toMatchObject({ type: 'key', color: 'gold' });
+  });
+
   it('hands back every geometry and material when it is unloaded', () => {
     const scene = new StageScene(STAGE);
     const watch = watchDisposal(resources(scene.root));

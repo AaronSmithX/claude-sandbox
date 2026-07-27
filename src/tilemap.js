@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { disposeTree } from './dispose.js';
+import { GLYPHS } from './glyphs.js';
 
 export const TILE_SIZE = 1;
 
@@ -26,112 +27,121 @@ export const PAD_COLORS = {
 };
 
 /**
- * Map legend. Case convention: an uppercase letter is the thing that blocks
- * you, its lowercase partner is the state that doesn't.
+ * The vocabulary: every kind of tile there is, by name.
  *
- *   #  wall          .  floor         ~  water        @  player spawn
- *   *  star (goal)   O  inner tube (lets you cross water)
- *   i  ice — step onto it and you keep going that way until you are off it
+ * Maps are still grids of single characters — see `src/glyphs.js` — but a character
+ * is only a binding, and what it binds to is one of these names. Names are what a
+ * mechanic claims, and there is no shortage of them: the game used to be capped at
+ * however many punctuation marks were still free, which is how it ended up with `)`
+ * and `(` for the two ways an enemy can turn.
  *
- *   '  floor one level up      "  floor two levels up
- *   /  stair — joins two floors one level apart, walkable both ways
- *   \  slide — a chute you can only enter at the top, and only ride down
- *   E e  elevator — a platform running between the floors beside it, starting at
- *        the top (E) or the bottom (e), so a pair of them can pass each other
+ * A name is a type, narrowed up to twice:
  *
- *   B    a crate: pushable, one tile at a time, and only from behind
- *   p q r  pressure plates — red, cyan, pink
- *   P Q R  the gate each one holds open, of the same colour
+ *   type                  what it is    wall, floor, water, ice, stair, slide,
+ *                                       elevator, crate, spawn, star, tube
+ *   type:variant          which one     key:gold, pad:a, plate:red, floor:1
+ *   type:variant/state    how it starts switch:red/pressed, elevator/top,
+ *                                       obstacle:red/retracted
  *
- *   a b c  teleport pads. Each letter appears exactly twice, and the two are the two
- *          ends of one trip: step onto either and you arrive at the other.
+ * The colour families are generated from the palettes above rather than listed, so a
+ * new colour is one line there and nothing here: add `rust` to KEY_COLORS and
+ * `key:rust` and `door:rust` both exist.
+ *
+ *   floor:N   ground N levels up. No limit, and no character to find for the next one.
+ *   stair     joins two floors one level apart, walkable both ways
+ *   slide     a chute you can only enter at the top, and only ride down
+ *   elevator  a platform running between the floors beside it, starting at the bottom,
+ *             or at the top with `elevator/top` so a pair of them can pass each other
+ *   crate     ordinary floor with a pushable crate on it — one tile at a time, and
+ *             only from behind
+ *   tube      an inner tube, which is what lets you cross water
+ *   ice       step onto it and you keep going that way until you are off it
+ *   pad:a     a teleport pad. Each variant appears exactly twice, and the two are the
+ *             two ends of one trip: step onto either and you arrive at the other.
+ *   enemy:vertical, enemy:horizontal   patrols that reverse when blocked
+ *   enemy:clockwise, enemy:counterclockwise   patrols that turn when blocked
+ *
+ * Both ramps work out where they run and how far they climb from the ground on either
+ * side of them, so a map never has to state its elevation twice.
  *
  * A map can also be several grids deep, ground first, which is what a bridge needs:
  * a deck on the layer above the water it crosses. A space means "nothing here" —
  * the usual case above the ground, and a hole in it down below.
  *
- *   g v w   keys  — gold, violet, white
- *   G V W   doors — gold, violet, white (a key opens only its own colour)
+ * A key opens only a door of its own colour. A plate is held down by anything standing
+ * on it — you or a crate — and its gate is open for exactly as long as one of its plates
+ * is held. Standing in a gateway also holds that gate open, so stepping off the last
+ * plate can never shut a gate on you.
  *
- *   1 2 3   switches that start up   — red, cyan, pink
- *   4 5 6   switches that start down — red, cyan, pink (1 pairs with 4, and so on)
- *   X Y Z   obstacle columns that start RAISED    — red, cyan, pink
- *   x y z   obstacle columns that start RETRACTED — red, cyan, pink
- *
- *   | -     enemy patrolling vertically / horizontally (reverses when blocked)
- *   ) (     enemy turning clockwise / anticlockwise when blocked
- *
- * A plate is held down by anything standing on it — you or a crate — and its gate is
- * open for exactly as long as one of its plates is held. Standing in a gateway also
- * holds that gate open, so stepping off the last plate can never shut a gate on you.
- *
- * Obstacles belong to group A (uppercase) or group B (lowercase). Stepping on a
- * switch swaps which group of its colour is raised, so one press both opens and
+ * Obstacles belong to group A (raised at the start) or group B (`/retracted`). Stepping
+ * on a switch swaps which group of its colour is raised, so one press both opens and
  * closes. Only one switch of a colour is down at a time: pressing one lets every
  * other switch of that colour back up, and a switch that is already down does
  * nothing when you stand on it. So give a colour at least two switches, or the
  * one it has will be spent after a single press.
+ *
+ * @type {Record<string, import('./types.js').TileDef>}
  */
-/** @type {Record<string, import('./types.js').TileDef>} */
 export const LEGEND = {
-  '#': { type: 'wall' },
-  '.': { type: 'floor' },
-  '~': { type: 'water' },
-  i: { type: 'ice' },
-  // Ground that sits higher up. One apostrophe per level, so the map shows its
-  // own contours: a run of `'` reads as raised, `"` as raised further.
-  "'": { type: 'floor', level: 1 },
-  '"': { type: 'floor', level: 2 },
-  // Ramps. Both work out where they run and how far they climb from the ground on
-  // either side of them, so a map never has to state it twice.
-  '/': { type: 'stair' },
-  '\\': { type: 'slide' },
-  E: { type: 'elevator', startUp: true },
-  e: { type: 'elevator' },
+  wall: { type: 'wall' },
+  floor: { type: 'floor' },
+  water: { type: 'water' },
+  ice: { type: 'ice' },
+  stair: { type: 'stair' },
+  slide: { type: 'slide' },
+  elevator: { type: 'elevator' },
+  'elevator/top': { type: 'elevator', startUp: true },
   // A crate stands on ordinary floor: the tile is the floor, the crate is a thing
   // on top of it that moves.
-  B: { type: 'floor', block: true },
-  // Plates and the gates they hold open. Uppercase blocks you, lowercase does not —
-  // the same convention the columns and their switches follow.
-  p: { type: 'plate', color: 'red' },
-  q: { type: 'plate', color: 'cyan' },
-  r: { type: 'plate', color: 'pink' },
-  P: { type: 'gate', color: 'red' },
-  Q: { type: 'gate', color: 'cyan' },
-  R: { type: 'gate', color: 'pink' },
-  // Teleport pads, in pairs. The letter is the pair.
-  a: { type: 'pad', color: 'a' },
-  b: { type: 'pad', color: 'b' },
-  c: { type: 'pad', color: 'c' },
-  '@': { type: 'spawn' },
-  '*': { type: 'star' },
-  O: { type: 'tube' },
-  g: { type: 'key', color: 'gold' },
-  v: { type: 'key', color: 'violet' },
-  w: { type: 'key', color: 'white' },
-  G: { type: 'door', color: 'gold' },
-  V: { type: 'door', color: 'violet' },
-  W: { type: 'door', color: 'white' },
-  1: { type: 'switch', color: 'red' },
-  2: { type: 'switch', color: 'cyan' },
-  3: { type: 'switch', color: 'pink' },
-  // The same three switches, but already held down at the start of the level.
-  4: { type: 'switch', color: 'red', startPressed: true },
-  5: { type: 'switch', color: 'cyan', startPressed: true },
-  6: { type: 'switch', color: 'pink', startPressed: true },
-  X: { type: 'obstacle', color: 'red', group: 'A' },
-  Y: { type: 'obstacle', color: 'cyan', group: 'A' },
-  Z: { type: 'obstacle', color: 'pink', group: 'A' },
-  x: { type: 'obstacle', color: 'red', group: 'B' },
-  y: { type: 'obstacle', color: 'cyan', group: 'B' },
-  z: { type: 'obstacle', color: 'pink', group: 'B' },
+  crate: { type: 'floor', block: true },
+  spawn: { type: 'spawn' },
+  star: { type: 'star' },
+  tube: { type: 'tube' },
   // Enemy spawns. The tile itself is ordinary floor; the pattern says which way
   // the enemy turns when something blocks its path.
-  '|': { type: 'floor', enemy: 'vertical' },
-  '-': { type: 'floor', enemy: 'horizontal' },
-  ')': { type: 'floor', enemy: 'clockwise' },
-  '(': { type: 'floor', enemy: 'counterclockwise' },
+  'enemy:vertical': { type: 'floor', enemy: 'vertical' },
+  'enemy:horizontal': { type: 'floor', enemy: 'horizontal' },
+  'enemy:clockwise': { type: 'floor', enemy: 'clockwise' },
+  'enemy:counterclockwise': { type: 'floor', enemy: 'counterclockwise' },
 };
+
+// The coloured families, one set per palette. Written as a loop because that is the
+// promise this format makes: a colour is a line in a palette, and everything that can
+// wear it follows automatically.
+for (const color of Object.keys(KEY_COLORS)) {
+  LEGEND[`key:${color}`] = { type: 'key', color };
+  LEGEND[`door:${color}`] = { type: 'door', color };
+}
+
+for (const color of Object.keys(SWITCH_COLORS)) {
+  LEGEND[`switch:${color}`] = { type: 'switch', color };
+  LEGEND[`switch:${color}/pressed`] = { type: 'switch', color, startPressed: true };
+  LEGEND[`obstacle:${color}`] = { type: 'obstacle', color, group: 'A' };
+  LEGEND[`obstacle:${color}/retracted`] = { type: 'obstacle', color, group: 'B' };
+  LEGEND[`plate:${color}`] = { type: 'plate', color };
+  LEGEND[`gate:${color}`] = { type: 'gate', color };
+}
+
+for (const color of Object.keys(PAD_COLORS)) {
+  LEGEND[`pad:${color}`] = { type: 'pad', color };
+}
+
+/** A raised floor, `floor:1` and up. The one name with a number in it rather than a list. */
+const FLOOR_LEVEL = /^floor:(\d+)$/;
+
+/**
+ * The tile a name describes, or null if there is no such tile. Everything in LEGEND,
+ * plus `floor:N` for any N — elevation is arithmetic, not a vocabulary, and capping it
+ * at two was only ever a shortage of apostrophes.
+ *
+ * @param {string} name
+ * @returns {import('./types.js').TileDef|null}
+ */
+export function tileDef(name) {
+  if (LEGEND[name]) return LEGEND[name];
+  const level = FLOOR_LEVEL.exec(name);
+  return level ? { type: 'floor', level: Number(level[1]) } : null;
+}
 
 // Column heights. Columns are 1.0 tall and centred on the group origin, and the
 // floor top is y = 0.
@@ -212,16 +222,21 @@ export class TileMap {
    *   several layers, ground first — every row the same length. Production passes a
    *   stage's `rows`; tests pass miniature levels. A space means "nothing here",
    *   which on an upper layer is the usual case and on the ground is a hole.
-   * @param {{build?: boolean}} [options] `build: false` skips all mesh
-   *   construction, which is how the headless tests run. Every mesh write in
-   *   this class is guarded, so the rules behave identically either way.
+   * @param {{build?: boolean, legend?: import('./types.js').Legend}} [options]
+   *   `build: false` skips all mesh construction, which is how the headless tests
+   *   run. Every mesh write in this class is guarded, so the rules behave identically
+   *   either way. `legend` binds characters for this map only, merged over the
+   *   default dialect in `src/glyphs.js` — which is how a stage gets a character of
+   *   its own without taking it away from every other stage.
    */
-  constructor(map, { build = true } = {}) {
+  constructor(map, { build = true, legend } = {}) {
     // One layer or many: a bridge needs two tiles in the same cell, so a map is
     // really a stack of grids. Most stages are one grid deep and say so by passing
     // it directly.
     this.layers = Array.isArray(map[0]) ? /** @type {string[][]} */ (map) : [map];
     this.map = this.layers[0];
+    /** What each character means on this map. @type {import('./types.js').Legend} */
+    this.legend = legend ? { ...GLYPHS, ...legend } : GLYPHS;
     this.rows = this.map.length;
     this.cols = this.map[0].length;
     this.build = build;
@@ -281,6 +296,9 @@ export class TileMap {
     /** @type {import('./types.js').Tile[]} */
     this._elevators = [];
 
+    // Resolved once, up front: the grid sweep below is a lookup, not a parse.
+    const defs = this._resolveLegend();
+
     for (let z = 0; z < this.rows; z++) {
       this.tiles.push(new Array(this.cols).fill(null));
       this.columns.push(Array.from({ length: this.cols }, () => []));
@@ -306,8 +324,10 @@ export class TileMap {
           // in the ground when it happens down there.
           if (char === ' ') continue;
 
-          const def = LEGEND[char];
-          if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
+          const def = defs[char];
+          if (!def) {
+            throw new Error(`Map character "${char}" at ${x},${z} is not in the legend`);
+          }
           if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
           if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
           if (def.block) this.blockSpawns.push({ gx: x, gz: z, layer });
@@ -338,6 +358,28 @@ export class TileMap {
     this._deriveRamps();
     this._deriveElevators();
     this._derivePads();
+  }
+
+  /**
+   * The legend with every name looked up. Every binding is resolved, not just the ones
+   * this map happens to use: a legend entry naming a tile that doesn't exist is a typo,
+   * and the moment to say so is when the stage loads, before any coordinate is involved.
+   *
+   * @returns {Record<string, import('./types.js').TileDef>}
+   */
+  _resolveLegend() {
+    /** @type {Record<string, import('./types.js').TileDef>} */
+    const defs = {};
+    for (const [char, entry] of Object.entries(this.legend)) {
+      // A name from the vocabulary, or a def written out in full for a genuine
+      // one-off that isn't worth a name of its own.
+      const def = typeof entry === 'string' ? tileDef(entry) : entry;
+      if (!def) {
+        throw new Error(`Legend binds "${char}" to "${entry}", which is not a tile`);
+      }
+      defs[char] = def;
+    }
+    return defs;
   }
 
   /** Every tile on every layer, ground first. */
