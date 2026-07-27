@@ -981,18 +981,21 @@ export class TileMap {
         t.columns.position.y =
           t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
       }
+      // A button, a plate's face and a gate's bars all hang off a group already
+      // standing on the tile, so their heights are local ones — unlike an
+      // obstacle's columns, which are placed in the world.
       if (t.button) {
         const down = this.isPressed(t);
-        t.button.position.y = t.baseY + (down ? SWITCH_DOWN_Y : SWITCH_UP_Y);
+        t.button.position.y = down ? SWITCH_DOWN_Y : SWITCH_UP_Y;
         t.button.material.color.copy(down ? t.downColor : t.idleColor);
         t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
       }
       if (t.type === 'plate') t.pressed = false;
       if (t.type === 'gate') {
         t.open = false;
-        if (t.bars) t.bars.position.y = t.baseY + GATE_SHUT_Y;
+        if (t.bars) t.bars.position.y = GATE_SHUT_Y;
       }
-      if (t.plateTop) t.plateTop.position.y = t.baseY + PLATE_UP_Y;
+      if (t.plateTop) t.plateTop.position.y = PLATE_UP_Y;
       if (t.type === 'elevator') {
         t.level = (t.startUp ? t.high : t.low) ?? t.level;
         if (t.platform) t.platform.position.y = this.heightOf(t);
@@ -1061,11 +1064,27 @@ export class TileMap {
         t.swing.rotation.y += (target - t.swing.rotation.y) * kDoor;
       }
 
+      // A gate's bars drop into the floor while it is held open, and rise back
+      // into the gateway when it shuts. Bars are the only thing that says which
+      // way is through, so this gets the door's faster factor too: the gateway
+      // must look clear by the time the player walks into it.
+      if (t.bars) {
+        const target = t.open ? GATE_OPEN_Y : GATE_SHUT_Y;
+        t.bars.position.y += (target - t.bars.position.y) * kDoor;
+      }
+
+      // A held plate sinks flush into its recess, which is what says the weight
+      // on it counts.
+      if (t.plateTop) {
+        const target = t.pressed ? PLATE_DOWN_Y : PLATE_UP_Y;
+        t.plateTop.position.y += (target - t.plateTop.position.y) * k;
+      }
+
       // A pressed button sinks into its plate and goes distinctly darker —
       // colour is what actually reads at this camera distance.
       if (t.button) {
         const pressed = this.isPressed(t);
-        const target = t.baseY + (pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y);
+        const target = pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y;
         t.button.position.y += (target - t.button.position.y) * k;
         t.button.material.color.lerp(pressed ? t.downColor : t.idleColor, k);
         t.button.material.emissive.lerp(pressed ? t.downEmissive : t.idleEmissive, k);

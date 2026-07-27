@@ -16,20 +16,23 @@ import { tickWorld } from '../../src/world.js';
 /**
  * A headless tilemap from an inline level. No meshes are built.
  * @param {string[]|string[][]} rows one layer of the level, or several, ground first
+ * @param {{build?: boolean}} [options] `build` asks for the meshes as well, which
+ *   is what a test about what the player can *see* needs.
  */
-export function makeMap(rows) {
-  return new TileMap(rows, { build: false });
+export function makeMap(rows, { build = false } = {}) {
+  return new TileMap(rows, { build });
 }
 
 /**
  * A whole headless game, wired the way main.js wires it.
  * @param {string[]|string[][]} rows the miniature level, one layer or several
- * @param {{enemies?: {interval?: number, phase?: number}}} [options]
+ * @param {{enemies?: {interval?: number, phase?: number}, build?: boolean}} [options]
  *   `enemies` overrides the pacing of every enemy, so a test can say "one step
  *   per second, starting now" instead of depending on the production tables.
+ *   `build` builds the meshes too, for tests about what a thing looks like.
  */
-export function makeGame(rows, { enemies: enemyOptions } = {}) {
-  const tilemap = makeMap(rows);
+export function makeGame(rows, { enemies: enemyOptions, build = false } = {}) {
+  const tilemap = makeMap(rows, { build });
   const inventory = new Inventory();
   const player = new Player(tilemap, inventory);
   const enemies = new Enemies(tilemap, enemyOptions);

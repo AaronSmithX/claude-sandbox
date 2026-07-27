@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Enemies } from '../src/enemy.js';
-import { makeMap, makeGame, advance, step, at, FRAME } from './helpers/level.js';
+import { makeMap, makeGame, advance, step, walk, at, FRAME } from './helpers/level.js';
 
 /**
  * Crates, the plates they hold down and the gates those open.
@@ -217,6 +217,44 @@ describe('a plate and its gate', () => {
     expect(map.isWalkable(2, 1)).toBe(false);
     map.get(2, 1).open = true;
     expect(map.isWalkable(2, 1)).toBe(false);
+  });
+
+  it('drops its bars into the floor while it is open, and raises them when it shuts', () => {
+    //  the same level as the first test, built this time: a gate the player can see
+    const game = makeGame(LEVEL, { build: true });
+    const shut = gateOf(game).bars.position.y;
+
+    walk(game, [
+      [1, 0],
+      [1, 0],
+      [1, 0],
+    ]);
+    expect(gateOf(game).open).toBe(true);
+    advance(game, 0.5);
+    // Well clear of the gateway, not merely somewhere between the two heights.
+    expect(gateOf(game).bars.position.y).toBeLessThan(shut - 0.9);
+
+    step(game, -1, 0); // off the plate again
+    expect(gateOf(game).open).toBe(false);
+    advance(game, 0.5);
+    expect(gateOf(game).bars.position.y).toBeCloseTo(shut, 2);
+  });
+
+  it('sinks its plate face while the plate is held', () => {
+    const game = makeGame(LEVEL, { build: true });
+    const up = plateOf(game).plateTop.position.y;
+
+    walk(game, [
+      [1, 0],
+      [1, 0],
+      [1, 0],
+    ]);
+    advance(game, 0.5);
+    expect(plateOf(game).plateTop.position.y).toBeLessThan(up - 0.02);
+
+    step(game, -1, 0);
+    advance(game, 0.5);
+    expect(plateOf(game).plateTop.position.y).toBeCloseTo(up, 2);
   });
 
   it('comes back shut when the stage is retried', () => {
