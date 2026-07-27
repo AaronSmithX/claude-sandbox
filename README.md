@@ -30,15 +30,9 @@ you carry on in whichever direction is still held.
 Sound starts on your first key press or tap, because browsers do not allow audio
 to begin before the page has been interacted with.
 
-## How to play
-
-Find the **star** on each stage. The HUD along the top shows what this stage
-expects you to find, and each icon lights up once you have it; the label in the
-corner says which stage you are on.
-
 ## Stages
 
-The game is a short run of stages, played in order from the title screen: three
+The game is a short run of stages, played in order from the title screen: four
 that each introduce one thing, then the original single level as the finale with
 everything on it at once.
 
@@ -47,6 +41,7 @@ everything on it at once.
 | **First Steps** | Walking, and holding a direction to keep walking. |
 | **Lock and Key** | Two keys, two doors, in an order that cannot be skipped. |
 | **Thin Ice** | Three ice runs, the last of which delivers you onto the star. |
+| **Up and Over** | A stair up, a walkway round, and a chute down into the star's pen. |
 | **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
 
 Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
@@ -57,6 +52,12 @@ one is a data change: append a `{ id, name, hint, rows }` entry and
 `test/levels.test.js` will hold the new map to the same checks as the rest (one
 spawn, a reachable star, a key for every door, no switch that can seal you in).
 
+## How to play
+
+Find the **star** on each stage. The HUD along the top shows what this stage
+expects you to find, and each icon lights up once you have it; the label in the
+corner says which stage you are on.
+
 | Thing | What it does |
 | --- | --- |
 | **Keys** (gold, violet, white) | Opens a door of the *same colour*, and is spent doing so. |
@@ -65,6 +66,9 @@ spawn, a reachable star, a key for every door, no switch that can seal you in).
 | **Ice** | Step onto it and you keep going that way, tile after tile, until you are off the ice or something stops you. You have no say until you come to rest, so look before you step. |
 | **Switches** (red, cyan, pink) | Stepping on one *swaps* that colour's columns: every raised column of that colour drops, and every retracted one pops up. Only one switch of a colour is down at a time — pressing one lets the others back up — and a switch already down does nothing, so you cannot toggle columns on the spot by standing on the same one twice. |
 | **Columns** | Four posts that rise out of a tile. Raised ones block you; retracted ones sit just proud of the floor, so you can see where they are and walk straight over them. |
+| **Raised floor** | Ground that sits higher up. You cannot step between two heights: a ledge is a wall you can see over. |
+| **Stairs** | Join two floors one level apart, and work in both directions — but only along the way they run. Their flanks are the side of a staircase, not a way on. |
+| **Slides** | A chute. You can only get on at the top, and once you do you ride it to the bottom — there is no walking back up one. |
 | **Star** | Reaching it clears the stage. |
 | **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one restarts the stage. |
 
@@ -80,6 +84,22 @@ the whole of it. Anything you come to rest on still happens — a key is collect
 a switch is pressed, the star is the star — but a **shut door stops you** rather
 than opening, so a slide can never spend a key on your behalf. Patrols cross ice
 like any other floor; only the player slides.
+
+### Height
+
+Floors can sit higher up, half a tile per level. Two tiles at different heights are
+not neighbours: you take a **stair** between them, along the way it runs, or you go
+round. Anything else is a ledge, and a ledge stops you.
+
+A **slide** is a chute between two heights. It can only be entered at its top and
+only ridden downhill, and the ride is the ice ride — one press, and you are a
+passenger until you come to rest. A chute of several tiles falls evenly across them,
+so a long one reads as one continuous drop.
+
+Both a stair and a chute work the rest out from the ground on either side of them: a
+map states its elevation once, with its floors, and the ramps agree with it or the
+stage refuses to load. Patrols use neither, so a raised walkway is a room of its
+own — the way a door shuts a patrol into one.
 
 ### Enemies
 
@@ -244,6 +264,9 @@ site and publishes `dist/` to GitHub Pages.
   ```
   #  wall          .  floor        ~  water       @  player spawn
   *  star (goal)   O  inner tube   i  ice
+
+  '  floor one level up      "  floor two levels up
+  /  stair    \  slide (a chute)
 
   g v w   keys  — gold, violet, white
   G V W   doors — gold, violet, white

@@ -68,7 +68,9 @@ export class Enemy {
     // Staggered, so a room full of patrols doesn't fire on the same frame.
     this._timer = this.phase * this.interval;
     const p = this.tilemap.gridToWorld(this.gx, this.gz);
-    this.mesh.position.set(p.x, 0, p.z);
+    // Patrols keep to the level they spawned on, so their height is whatever the
+    // ground under them is — a patrol on a raised walkway rides at that height.
+    this.mesh.position.set(p.x, this.tilemap.tileHeight(this.gx, this.gz), p.z);
   }
 
   /**
@@ -87,14 +89,14 @@ export class Enemy {
       const nx = this.gx + dir[0];
       const nz = this.gz + dir[1];
 
-      if (this.tilemap.isWalkable(nx, nz)) {
+      if (this.tilemap.canPatrol(this.gx, this.gz, nx, nz)) {
         this.dir = dir;
         this.gx = nx;
         this.gz = nz;
 
         this._from.copy(this.mesh.position);
         const target = this.tilemap.gridToWorld(nx, nz);
-        this._to.set(target.x, 0, target.z);
+        this._to.set(target.x, this.tilemap.tileHeight(nx, nz), target.z);
         this._t = 0;
         this._moving = true;
         return;

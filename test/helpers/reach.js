@@ -46,6 +46,10 @@ export function reachableFrom(map, color = null) {
     for (const [dx, dz] of DIRECTIONS) {
       const t = map.get(x + dx, z + dz);
       if (!passable(t) || seen.has(key(t.gx, t.gz))) continue;
+      // Elevation is the map's business, not this fill's: a ledge, a stair taken
+      // from the side and a chute taken uphill are all closed edges. That also
+      // makes the fill directed, which is exactly what a one-way chute is.
+      if (!map.isConnected(x, z, t.gx, t.gz)) continue;
       seen.add(key(t.gx, t.gz));
       queue.push([t.gx, t.gz]);
     }

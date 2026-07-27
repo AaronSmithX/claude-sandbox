@@ -25,6 +25,10 @@ export const SWITCH_COLORS = {
  *   *  star (goal)   O  inner tube (lets you cross water)
  *   i  ice — step onto it and you keep going that way until you are off it
  *
+ *   '  floor one level up      "  floor two levels up
+ *   /  stair — joins two floors one level apart, walkable both ways
+ *   \  slide — a chute you can only enter at the top, and only ride down
+ *
  *   g v w   keys  — gold, violet, white
  *   G V W   doors — gold, violet, white (a key opens only its own colour)
  *
@@ -48,6 +52,14 @@ export const LEGEND = {
   '.': { type: 'floor' },
   '~': { type: 'water' },
   i: { type: 'ice' },
+  // Ground that sits higher up. One apostrophe per level, so the map shows its
+  // own contours: a run of `'` reads as raised, `"` as raised further.
+  "'": { type: 'floor', level: 1 },
+  '"': { type: 'floor', level: 2 },
+  // Ramps. Both work out where they run and how far they climb from the ground on
+  // either side of them, so a map never has to state it twice.
+  '/': { type: 'stair' },
+  '\\': { type: 'slide' },
   '@': { type: 'spawn' },
   '*': { type: 'star' },
   O: { type: 'tube' },
@@ -92,6 +104,18 @@ const COLUMN_RETRACTED_Y = COLUMN_STUB_HEIGHT - 0.5;
 // puts the inner tube right at the surface — which is the point: it shows that
 // the tube is what's keeping you up.
 export const WATER_SINK = 0.24;
+
+// How far one level of elevation lifts a tile. Half a tile: enough that a plateau
+// reads as being above the floor at this camera angle, and low enough that a
+// single stride up onto a stair still looks like a step rather than a climb.
+export const LEVEL_RISE = 0.5;
+
+// The tile types that join two heights. Neither is ground you can arrive at from
+// the side: you take them along their run or not at all.
+const RAMPS = new Set(['stair', 'slide']);
+
+/** The opposite direction. `|| 0` because negating a zero gives -0. */
+const opposite = ([dx, dz]) => [-dx || 0, -dz || 0];
 
 // Floor buttons: the grey plate they sit on, and the button's height when up and
 // when pressed.
@@ -160,12 +184,179 @@ export class TileMap {
         if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
         if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
         if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
-        const tile = { ...def, gx: x, gz: z };
+        const tile = { level: 0, ...def, gx: x, gz: z };
         if (tile.type === 'switch') this._switches.push(tile);
         row.push(tile);
       }
       this.tiles.push(row);
     }
+
+    this._deriveRamps();
+  }
+
+  /**
+   * Works out what every stair and slide joins.
+   *
+   * A ramp is authored as a bare `/` or `\`, and reads the rest from the ground on
+   * either side of it — the same trick `_doorFacing` uses to decide which way a
+   * door's slab must span. That keeps a map honest: the elevation is stated once,
+   * by the floors, and a ramp cannot disagree with the ground it lands on.
+   *
+   * Each ramp comes out of this with:
+   *   `run`   'x' or 'z', the axis it may be taken along
+   *   `level` the height of its own surface, halfway up for a stair
+   *   `up`    the direction towards its higher end
+   *   `dir`   the direction it descends — the only way a slide may be taken
+   */
+  _deriveRamps() {
+    const chutes = new Set();
+
+    for (const tile of this.tiles.flat()) {
+      if (tile.type === 'stair') this._deriveStair(tile);
+      if (tile.type === 'slide' && !chutes.has(tile)) {
+        for (const part of this._deriveChute(tile)) chutes.add(part);
+      }
+    }
+  }
+
+  /** The level of a tile you can stand on, or null for walls and ramps. */
+  _groundLevel(gx, gz) {
+    const t = this.get(gx, gz);
+    if (!t || t.type === 'wall' || RAMPS.has(t.type)) return null;
+    return t.level;
+  }
+
+  /**
+   * The axis a ramp runs along, judged by the ground at its ends: the one where
+   * both sides are standable and at different heights.
+   * @returns {{run: 'x'|'z', axis: [number, number], low: number, high: number}}
+   */
+  _rampAxis(tile, what) {
+    const options = [
+      { run: /** @type {const} */ ('x'), axis: /** @type {[number, number]} */ ([1, 0]) },
+      { run: /** @type {const} */ ('z'), axis: /** @type {[number, number]} */ ([0, 1]) },
+    ];
+
+    const found = [];
+    for (const option of options) {
+      const [dx, dz] = option.axis;
+      const back = this._groundLevel(tile.gx - dx, tile.gz - dz);
+      const forward = this._groundLevel(tile.gx + dx, tile.gz + dz);
+      if (back === null || forward === null || back === forward) continue;
+      found.push({ ...option, low: Math.min(back, forward), high: Math.max(back, forward) });
+    }
+
+    if (found.length === 0) {
+      throw new Error(
+        `The ${what} at ${tile.gx},${tile.gz} joins nothing: it needs floors at ` +
+          'different heights on opposite sides of it',
+      );
+    }
+    if (found.length === 2) {
+      throw new Error(
+        `The ${what} at ${tile.gx},${tile.gz} could run either way: it has floors ` +
+          'at different heights on both axes',
+      );
+    }
+    return found[0];
+  }
+
+  /** A stair climbs exactly one level, and may be taken in either direction. */
+  _deriveStair(tile) {
+    const { run, axis, low, high } = this._rampAxis(tile, 'stair');
+    if (high - low !== 1) {
+      throw new Error(
+        `The stair at ${tile.gx},${tile.gz} spans ${high - low} levels: a stair ` +
+          'joins floors exactly one level apart',
+      );
+    }
+
+    const higherIsForward = this._groundLevel(tile.gx + axis[0], tile.gz + axis[1]) === high;
+    tile.run = run;
+    tile.low = low;
+    tile.high = high;
+    // Halfway up, so a climb is two half-steps rather than one lurch.
+    tile.level = low + 0.5;
+    tile.up = higherIsForward ? axis : opposite(axis);
+    tile.dir = opposite(tile.up);
+  }
+
+  /**
+   * A chute is a straight run of slide tiles between a floor at the top and a floor
+   * at the bottom, and it descends evenly across them — so a three-tile chute from
+   * level 2 to level 0 drops half a level per tile, and the ride reads as one
+   * continuous fall rather than a set of steps.
+   *
+   * @returns {object[]} every tile in the chute, so the caller only derives it once
+   */
+  _deriveChute(tile) {
+    const run = this._chuteRun(tile);
+    const [dx, dz] = run === 'x' ? [1, 0] : [0, 1];
+
+    // Walk to both ends of the run of slide tiles.
+    const isSlide = (gx, gz) => this.get(gx, gz)?.type === 'slide';
+    let backX = tile.gx;
+    let backZ = tile.gz;
+    while (isSlide(backX - dx, backZ - dz)) {
+      backX -= dx;
+      backZ -= dz;
+    }
+    const parts = [];
+    for (let x = backX, z = backZ; isSlide(x, z); x += dx, z += dz) {
+      parts.push(this.get(x, z));
+    }
+
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    const above = this._groundLevel(first.gx - dx, first.gz - dz);
+    const below = this._groundLevel(last.gx + dx, last.gz + dz);
+    if (above === null || below === null) {
+      throw new Error(
+        `The chute at ${first.gx},${first.gz} does not land: a slide needs floor ` +
+          'at both ends of its run',
+      );
+    }
+    if (above === below) {
+      throw new Error(
+        `The chute at ${first.gx},${first.gz} is level: a slide has to go down`,
+      );
+    }
+
+    // Downhill sets the direction of travel, whichever way round it was authored.
+    const downhill = above > below;
+    const descending = downhill ? parts : [...parts].reverse();
+    const step = downhill ? [dx, dz] : opposite([dx, dz]);
+    const top = Math.max(above, below);
+    const drop = Math.abs(above - below) / (descending.length + 1);
+
+    descending.forEach((part, index) => {
+      part.run = run;
+      part.dir = step;
+      part.up = opposite(step);
+      part.level = top - drop * (index + 1);
+    });
+
+    return parts;
+  }
+
+  /**
+   * Which way a chute runs. A run of more than one slide tile says so by its own
+   * shape; a single tile is judged by the ground around it, like a stair.
+   * @returns {'x'|'z'}
+   */
+  _chuteRun(tile) {
+    const isSlide = (gx, gz) => this.get(gx, gz)?.type === 'slide';
+    const alongX = isSlide(tile.gx - 1, tile.gz) || isSlide(tile.gx + 1, tile.gz);
+    const alongZ = isSlide(tile.gx, tile.gz - 1) || isSlide(tile.gx, tile.gz + 1);
+
+    if (alongX && alongZ) {
+      throw new Error(
+        `The chute at ${tile.gx},${tile.gz} bends: a slide runs in a straight line`,
+      );
+    }
+    if (alongX) return 'x';
+    if (alongZ) return 'z';
+    return this._rampAxis(tile, 'slide').run;
   }
 
   get(gx, gz) {
@@ -185,12 +376,16 @@ export class TileMap {
   /**
    * Terrain-only walkability: what an enemy can cross. Walls, water and doors
    * always block — doors whether open or shut, so a patrol stays in its room —
-   * while columns block only while they are raised.
+   * ramps are not for patrols at all, and columns block only while they are raised.
+   *
+   * This asks about one tile. Whether a patrol can get from where it is *to* that
+   * tile is `canPatrol`, which also weighs the height of the two.
    */
   isWalkable(gx, gz) {
     const t = this.get(gx, gz);
     if (!t) return false;
     if (t.type === 'wall' || t.type === 'water' || t.type === 'door') return false;
+    if (RAMPS.has(t.type)) return false;
     if (t.type === 'obstacle') return !this.isRaised(t);
     return true;
   }
@@ -200,29 +395,100 @@ export class TileMap {
   }
 
   /**
-   * How far below the floor plane something standing on this tile sits. Water is
-   * the only tile you sink into; everything else is level ground.
+   * How high this tile's ground is, from the elevation authored into the map. Free
+   * of the water sink, so it is the height of the *tile* rather than of whatever is
+   * standing on it — which is what the camera follows.
    */
-  surfaceY(gx, gz) {
-    return this.get(gx, gz)?.type === 'water' ? -WATER_SINK : 0;
-  }
-
-  /** True when standing here means sliding on. */
-  isSlippery(gx, gz) {
-    return this.get(gx, gz)?.type === 'ice';
+  tileHeight(gx, gz) {
+    return (this.get(gx, gz)?.level ?? 0) * LEVEL_RISE;
   }
 
   /**
-   * Whether something sliding out of control may enter this tile. Everything the
-   * player could walk onto, minus shut doors: a slide is not a decision, so it
-   * must not spend a key for you. You stop against the door and open it by
-   * walking into it deliberately.
+   * Where something standing on this tile sits. That is the tile's own height, less
+   * the sink if it is water — the one tile you stand *in* rather than on.
    */
-  canSlideInto(gx, gz, inventory) {
+  surfaceY(gx, gz) {
     const t = this.get(gx, gz);
+    if (!t) return 0;
+    return t.level * LEVEL_RISE - (t.type === 'water' ? WATER_SINK : 0);
+  }
+
+  /** True when standing here means sliding on: ice, and the slides that fall. */
+  isSlippery(gx, gz) {
+    const type = this.get(gx, gz)?.type;
+    return type === 'ice' || type === 'slide';
+  }
+
+  /**
+   * Whether two neighbouring tiles are joined, as geometry — before anything about
+   * keys or tubes is considered. This is where elevation lives:
+   *
+   *  - ordinary ground connects only to ground at the same height, so a ledge is a
+   *    wall you can see over;
+   *  - a stair connects its two ends, and only along its run — its flanks are the
+   *    side of a staircase, not a way on;
+   *  - a slide is one-way. It may only be entered at the top and only ridden
+   *    downhill, which is what makes a chute a commitment rather than a shortcut.
+   */
+  isConnected(fromGx, fromGz, toGx, toGz) {
+    const from = this.get(fromGx, fromGz);
+    const to = this.get(toGx, toGz);
+    if (!from || !to) return false;
+
+    const move = [toGx - fromGx, toGz - fromGz];
+    if (!this._allowsMove(from, move)) return false;
+    if (!this._allowsMove(to, move)) return false;
+
+    // Neither end is a ramp, so this is ground to ground: the heights must match.
+    if (!RAMPS.has(from.type) && !RAMPS.has(to.type)) return from.level === to.level;
+    return true;
+  }
+
+  /** Whether a ramp permits being crossed this way. Ordinary ground permits all. */
+  _allowsMove(tile, [dx, dz]) {
+    if (!RAMPS.has(tile.type)) return true;
+    const alongRun = tile.run === 'x' ? dz === 0 : dx === 0;
+    if (!alongRun) return false;
+    // A slide only ever goes one way.
+    if (tile.type === 'slide') return dx === tile.dir[0] && dz === tile.dir[1];
+    return true;
+  }
+
+  /**
+   * Whether the player, carrying `inventory`, may take one step from one tile to
+   * the next: the destination has to allow them in, and the two tiles have to be
+   * joined. Doors and water are the destination's business; height is the pair's.
+   */
+  canStep(fromGx, fromGz, toGx, toGz, inventory) {
+    if (!this.canEnter(toGx, toGz, inventory)) return false;
+    return this.isConnected(fromGx, fromGz, toGx, toGz);
+  }
+
+  /**
+   * Whether something sliding out of control may carry on into the next tile.
+   * Everything the player could walk onto, minus shut doors: a slide is not a
+   * decision, so it must not spend a key for you. You stop against the door and
+   * open it by walking into it deliberately.
+   */
+  canSlideInto(fromGx, fromGz, toGx, toGz, inventory) {
+    const t = this.get(toGx, toGz);
     if (!t) return false;
     if (t.type === 'door' && !t.open) return false;
-    return this.canEnter(gx, gz, inventory);
+    return this.canStep(fromGx, fromGz, toGx, toGz, inventory);
+  }
+
+  /**
+   * Whether a patrol may take a step. Patrols keep to the level they spawned on:
+   * stairs and slides are not theirs to use, and a ledge stops them exactly as it
+   * stops the player. So a raised walkway is a room of its own, the way a door
+   * shuts a patrol into one.
+   */
+  canPatrol(fromGx, fromGz, toGx, toGz) {
+    if (!this.isWalkable(toGx, toGz)) return false;
+    const from = this.get(fromGx, fromGz);
+    const to = this.get(toGx, toGz);
+    if (!from || !to || RAMPS.has(from.type)) return false;
+    return from.level === to.level;
   }
 
   // --- Rules ----------------------------------------------------------------
@@ -354,11 +620,12 @@ export class TileMap {
         if (t.mesh) t.mesh.visible = true;
         if (t.swing) t.swing.rotation.y = 0;
         if (t.columns) {
-          t.columns.position.y = this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y;
+          t.columns.position.y =
+            t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
         }
         if (t.button) {
           const down = this.isPressed(t);
-          t.button.position.y = down ? SWITCH_DOWN_Y : SWITCH_UP_Y;
+          t.button.position.y = t.baseY + (down ? SWITCH_DOWN_Y : SWITCH_UP_Y);
           t.button.material.color.copy(down ? t.downColor : t.idleColor);
           t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
         }
@@ -392,7 +659,7 @@ export class TileMap {
     for (const row of this.tiles) {
       for (const t of row) {
         if (t.columns) {
-          const target = this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y;
+          const target = t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
           t.columns.position.y += (target - t.columns.position.y) * k;
         }
 
@@ -406,7 +673,7 @@ export class TileMap {
         // colour is what actually reads at this camera distance.
         if (t.button) {
           const pressed = this.isPressed(t);
-          const target = pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y;
+          const target = t.baseY + (pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y);
           t.button.position.y += (target - t.button.position.y) * k;
           t.button.material.color.lerp(pressed ? t.downColor : t.idleColor, k);
           t.button.material.emissive.lerp(pressed ? t.downEmissive : t.idleEmissive, k);
@@ -447,10 +714,32 @@ export class TileMap {
       emissive: 0x24485c,
     });
 
+    // Stone for the sides of raised ground and the frame of a chute, so height
+    // reads as built rather than as grass floating in the air.
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x4a5361, roughness: 0.85 });
+
+    // Raised ground is a plinth rather than a slab, so a plateau has sides. One
+    // geometry per distinct height, shared by every tile that stands that tall.
+    const plinths = new Map();
+    const plinthGeo = (height) => {
+      if (!plinths.has(height)) {
+        plinths.set(
+          height,
+          new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.2 + height, TILE_SIZE * 0.98),
+        );
+      }
+      return plinths.get(height);
+    };
+
     for (let z = 0; z < this.rows; z++) {
       for (let x = 0; x < this.cols; x++) {
         const tile = this.tiles[z][x];
         const world = this.gridToWorld(x, z);
+        // Everything that sits on this tile — a door, a button, a pickup's bob —
+        // is placed relative to the height of its ground.
+        const height = this.tileHeight(x, z);
+        tile.baseY = height;
+        world.y = height;
 
         if (tile.type === 'wall') {
           const mesh = new THREE.Mesh(wallGeo, wallMat);
@@ -463,34 +752,50 @@ export class TileMap {
 
         if (tile.type === 'water') {
           const mesh = new THREE.Mesh(waterGeo, waterMat);
-          mesh.position.set(world.x, -0.15, world.z);
+          mesh.position.set(world.x, height - 0.15, world.z);
           mesh.receiveShadow = true;
           this.group.add(mesh);
           continue;
         }
 
-        if (tile.type === 'ice') {
-          // Flush with the floor it replaces, so you glide across the level
-          // rather than up onto something.
-          const mesh = new THREE.Mesh(floorGeo, iceMat);
-          mesh.position.set(world.x, -0.1, world.z);
-          mesh.receiveShadow = true;
-          this.group.add(mesh);
+        if (tile.type === 'stair') {
+          const stair = buildStair(tile, this._litMaterial(0x6b7686, 0.08), stoneMat);
+          stair.position.set(world.x, 0, world.z);
+          this.group.add(stair);
           continue;
         }
 
-        // Every other tile gets a floor underneath, so opening a door or
-        // retracting columns reveals ground rather than a hole.
-        const mat = (x + z) % 2 === 0 ? floorMat : floorMatAlt;
-        const floor = new THREE.Mesh(floorGeo, mat);
-        floor.position.set(world.x, -0.1, world.z);
+        if (tile.type === 'slide') {
+          const slide = buildSlide(tile, this._chuteDrop(tile), iceMat, stoneMat);
+          slide.position.set(world.x, 0, world.z);
+          this.group.add(slide);
+          continue;
+        }
+
+        // Every other tile gets ground underneath, so opening a door or retracting
+        // columns reveals something to stand on rather than a hole. Ice is that
+        // ground rather than something on top of it: you glide across the level,
+        // not up onto anything.
+        const flat = height === 0;
+        const mat = tile.type === 'ice' ? iceMat : (x + z) % 2 === 0 ? floorMat : floorMatAlt;
+        const floor = new THREE.Mesh(flat ? floorGeo : plinthGeo(height), mat);
+        floor.position.set(world.x, flat ? -0.1 : height - (0.2 + height) / 2, world.z);
         floor.receiveShadow = true;
+        floor.castShadow = !flat;
         this.group.add(floor);
 
         const feature = this._buildFeature(tile, world);
         if (feature) this.group.add(feature);
       }
     }
+  }
+
+  /** How far one tile of a chute falls, in world units. */
+  _chuteDrop(tile) {
+    const [dx, dz] = tile.dir;
+    const next = this.get(tile.gx + dx, tile.gz + dz);
+    const below = next?.type === 'slide' ? next.level : this._groundLevel(tile.gx + dx, tile.gz + dz);
+    return (tile.level - (below ?? tile.level)) * LEVEL_RISE;
   }
 
   /** Builds the mesh that sits on top of a tile's floor, if it has one. */
@@ -501,7 +806,7 @@ export class TileMap {
           this._litMaterial(KEY_COLORS[tile.color], 0.35),
           this._litMaterial(new THREE.Color(KEY_COLORS[tile.color]).multiplyScalar(0.55), 0.3),
         );
-        door.group.position.set(world.x, 0, world.z);
+        door.group.position.set(world.x, world.y, world.z);
         door.group.rotation.y = this._doorFacing(tile);
         tile.mesh = door.group;
         tile.swing = door.swing;
@@ -523,14 +828,14 @@ export class TileMap {
           column.castShadow = true;
           columns.add(column);
         }
-        columns.position.set(world.x, COLUMN_RAISED_Y, world.z);
+        columns.position.set(world.x, world.y + COLUMN_RAISED_Y, world.z);
         tile.columns = columns;
         return columns;
       }
 
       case 'switch': {
         const group = new THREE.Group();
-        group.position.set(world.x, 0, world.z);
+        group.position.set(world.x, world.y, world.z);
 
         // A grey plate a little smaller than the tile, so the button reads as a
         // fitting rather than something dropped on the floor.
@@ -605,8 +910,8 @@ export class TileMap {
     const spinner = new THREE.Group();
     spinner.add(art);
     holder.add(spinner);
-    holder.position.set(world.x, height, world.z);
-    tile.bobBase = height;
+    holder.position.set(world.x, world.y + height, world.z);
+    tile.bobBase = world.y + height;
     tile.spinner = spinner;
     tile.mesh = holder;
     return holder;
@@ -687,6 +992,83 @@ function buildDoor(material, panelMaterial) {
   panel.add(handle);
 
   return { group, swing };
+}
+
+// Three treads to a stair. Enough that it reads as a staircase from this camera
+// distance, few enough that each tread is a chunky block rather than a sliver.
+const STAIR_TREADS = 3;
+
+/**
+ * A staircase filling one tile: treads climbing from the low end to the high one,
+ * each a block standing on the ground rather than a step floating above it.
+ *
+ * Built with local +z as the way up, then turned to face the tile's own `up`.
+ */
+function buildStair(tile, treadMaterial, sideMaterial) {
+  const group = new THREE.Group();
+  const lowY = tile.low * LEVEL_RISE;
+  const rise = (tile.high - tile.low) * LEVEL_RISE;
+  const depth = (TILE_SIZE * 0.98) / STAIR_TREADS;
+
+  for (let i = 0; i < STAIR_TREADS; i++) {
+    const top = lowY + (rise * (i + 1)) / STAIR_TREADS;
+    const height = top + 0.2; // down past the floor plane, so nothing floats
+    const tread = new THREE.Mesh(
+      new THREE.BoxGeometry(TILE_SIZE * 0.98, height, depth),
+      i === STAIR_TREADS - 1 ? treadMaterial : sideMaterial,
+    );
+    tread.position.set(0, top - height / 2, -TILE_SIZE / 2 + depth * (i + 0.5));
+    tread.castShadow = true;
+    tread.receiveShadow = true;
+    group.add(tread);
+  }
+
+  group.rotation.y = Math.atan2(tile.up[0], tile.up[1]);
+  return group;
+}
+
+/**
+ * One tile of a chute: a slab tilted to match the fall, a plinth holding it up, and
+ * a rail down each side — which is what tells a chute apart from ice at a glance,
+ * since both are the same bright glassy material.
+ *
+ * Built with local +z as downhill, then turned to face the tile's own `dir`.
+ */
+function buildSlide(tile, drop, surfaceMaterial, frameMaterial) {
+  const group = new THREE.Group();
+  const centre = tile.level * LEVEL_RISE;
+  // The slab spans one tile along the fall, so its tilt is the fall over a tile.
+  const tilt = Math.atan2(drop, TILE_SIZE);
+  const length = Math.hypot(TILE_SIZE, drop) * 1.02;
+
+  const bed = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE_SIZE * 0.86, 0.08, length),
+    surfaceMaterial,
+  );
+  bed.rotation.x = tilt;
+  bed.position.y = centre;
+  bed.receiveShadow = true;
+  group.add(bed);
+
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, length), frameMaterial);
+    rail.rotation.x = tilt;
+    rail.position.set(side * TILE_SIZE * 0.45, centre + 0.06, 0);
+    rail.castShadow = true;
+    group.add(rail);
+  }
+
+  // A plinth under the bed, from below the floor plane up to the chute.
+  const support = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE_SIZE * 0.8, centre + 0.2, TILE_SIZE * 0.9),
+    frameMaterial,
+  );
+  support.position.y = centre - (centre + 0.2) / 2;
+  support.receiveShadow = true;
+  group.add(support);
+
+  group.rotation.y = Math.atan2(tile.dir[0], tile.dir[1]);
+  return group;
 }
 
 /**

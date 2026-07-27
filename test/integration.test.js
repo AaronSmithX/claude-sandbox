@@ -154,6 +154,28 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
+  it('climbs Up and Over, and can only reach the star down the chute', () => {
+    const game = makeGame(stage('up-and-over').rows);
+    const NORTH = [0, -1];
+
+    // The pen the star sits in has one way in, and it is not at ground level.
+    expect(game.tilemap.isConnected(7, 3, 7, 4)).toBe(false);
+
+    walk(game, [...times(2, EAST), ...times(2, SOUTH)]); // to the foot of the stair
+    expect(at(game)).toEqual({ gx: 3, gz: 3 });
+
+    walk(game, times(2, SOUTH)); // up the stair onto the walkway
+    expect(at(game)).toEqual({ gx: 3, gz: 5 });
+    expect(game.player.elevation).toBeCloseTo(0.5);
+
+    walk(game, times(4, EAST)); // along the walkway to the top of the chute
+    expect(at(game)).toEqual({ gx: 7, gz: 5 });
+
+    step(game, ...NORTH); // and down it, which lands on the star
+    expect(at(game)).toEqual({ gx: 7, gz: 3 });
+    expect(game.inventory.won).toBe(true);
+  });
+
   it('crosses Thin Ice in three slides', () => {
     const game = makeGame(stage('thin-ice').rows);
 

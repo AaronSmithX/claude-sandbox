@@ -110,6 +110,19 @@ export class Player {
   _snapToGrid() {
     const p = this.tilemap.gridToWorld(this.gx, this.gz);
     this.mesh.position.set(p.x, this._restY(this.gx, this.gz), p.z);
+    this._fromHeight = this.tilemap.tileHeight(this.gx, this.gz);
+    this._toHeight = this._fromHeight;
+  }
+
+  /**
+   * The height of the ground the player is on, interpolated across a step and free
+   * of the bob, the hop and the water sink. The camera follows this: climbing a
+   * stair has to move the frame, and a walk cycle must never.
+   */
+  get elevation() {
+    if (!this._moving) return this._toHeight;
+    const e = this._t * this._t * (3 - 2 * this._t);
+    return this._fromHeight + (this._toHeight - this._fromHeight) * e;
   }
 
   /**
@@ -211,7 +224,10 @@ export class Player {
 
     const nx = this.gx + dx;
     const nz = this.gz + dz;
-    if (!this.tilemap.canEnter(nx, nz, this.inventory)) return false;
+    // canStep, not canEnter: as well as asking whether the tile lets you in, this
+    // asks whether the two tiles are joined — a ledge, a stair taken from the side
+    // or a slide taken uphill all fail here.
+    if (!this.tilemap.canStep(this.gx, this.gz, nx, nz, this.inventory)) return false;
 
     // Doors open on the way in, spending the matching key.
     this.tilemap.openDoor(nx, nz, this.inventory);
@@ -230,6 +246,8 @@ export class Player {
     this._from.set(origin.x, this._restY(from.gx, from.gz), origin.z);
     const target = this.tilemap.gridToWorld(nx, nz);
     this._to.set(target.x, this._restY(nx, nz), target.z);
+    this._fromHeight = this.tilemap.tileHeight(from.gx, from.gz);
+    this._toHeight = this.tilemap.tileHeight(nx, nz);
     this._hopScale = this._wading(from.gx, from.gz) || this._wading(nx, nz) ? 0.25 : 1;
     this._t = carry;
     this._moving = true;
@@ -322,7 +340,7 @@ export class Player {
       onIce &&
       !this.inventory.won &&
       !this.inventory.dead &&
-      this.tilemap.canSlideInto(this.gx + dx, this.gz + dz, this.inventory);
+      this.tilemap.canSlideInto(this.gx, this.gz, this.gx + dx, this.gz + dz, this.inventory);
 
     if (!canGoOn) {
       this._sliding = false;

@@ -83,6 +83,30 @@ const THIN_ICE = {
 };
 
 /**
+ * Height. A stair is the only way up onto the walkway, the walkway is the only way
+ * round to the chute, and the chute is the only way into the pen the star sits in —
+ * so the stage cannot be finished without going up and coming back down. The ledge
+ * at the bottom left is deliberate: it is plainly a step up, and plainly not one
+ * you can take.
+ *
+ * @type {Stage}
+ */
+const UP_AND_OVER = {
+  id: 'up-and-over',
+  name: 'Up and Over',
+  hint: 'A <b>stair</b> goes both ways. A <b>chute</b> only goes down.',
+  rows: [
+    '###########',
+    "#@..#'''''#",
+    "#.#.#'###'#",
+    "#.#/#'#*#'#",
+    "#.#'#'#\\#'#",
+    "#..'''''''#",
+    '###########',
+  ],
+};
+
+/**
  * The original single-level game, kept whole as the finale: nine rooms on a 16x16
  * grid, chained so every mechanic sits on the critical path — ice corridor ->
  * gold door -> inner tube -> red switch -> pink switch -> white key -> violet
@@ -115,7 +139,7 @@ const THE_GAUNTLET = {
 };
 
 /** Every stage, in play order. @type {Stage[]} */
-export const STAGES = [FIRST_STEPS, LOCK_AND_KEY, THIN_ICE, THE_GAUNTLET];
+export const STAGES = [FIRST_STEPS, LOCK_AND_KEY, THIN_ICE, UP_AND_OVER, THE_GAUNTLET];
 
 /**
  * The finale's map, which is also the level the game shipped as before there were

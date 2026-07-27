@@ -30,7 +30,17 @@ function smoothDamp(current, target, vel, smoothTime, dt) {
  * every step. A frozen orientation cannot do that.
  */
 export class CameraFollow {
-  constructor(camera, target, { offset, smoothTime = 0.3, followY = 0.35 } = {}) {
+  /**
+   * @param {object} [options]
+   * @param {import('three').Vector3} [options.offset]
+   * @param {number} [options.smoothTime]
+   * @param {number} [options.followY]
+   * @param {() => number} [options.groundY] how high the ground under the target is.
+   *   Elevation has to move the frame — climb a stair and the camera climbs with
+   *   you — while the bob, the hop and the water sink must not, which is why this is
+   *   asked for separately instead of read off the target's own position.
+   */
+  constructor(camera, target, { offset, smoothTime = 0.3, followY = 0.35, groundY } = {}) {
     this.camera = camera;
     this.target = target; // an Object3D whose .position we track
     // Above and behind. Pulled back from the original 9/7 to suit the larger
@@ -40,6 +50,7 @@ export class CameraFollow {
     // The height the camera pretends the player is at, so that the walk bob,
     // the hop and the water sink never move the frame.
     this.followY = followY;
+    this.groundY = groundY ?? (() => 0);
 
     this._desired = new THREE.Vector3();
     this._velocity = new THREE.Vector3();
@@ -52,10 +63,10 @@ export class CameraFollow {
     this.snap();
   }
 
-  /** Where the camera wants to be, ignoring the target's height. */
+  /** Where the camera wants to be: the target's tile, at the height of its ground. */
   _focus(out) {
     return out
-      .set(this.target.position.x, this.followY, this.target.position.z)
+      .set(this.target.position.x, this.followY + this.groundY(), this.target.position.z)
       .add(this.offset);
   }
 

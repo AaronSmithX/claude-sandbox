@@ -36,6 +36,12 @@ for (const stage of STAGES) {
       expect(() => parse(stage)).not.toThrow();
     });
 
+    it('builds its meshes', () => {
+      // The headless checks below never touch the mesh code, so this is what says
+      // a stair, a chute or a raised floor can actually be put on the screen.
+      expect(() => new TileMap(stage.rows, { build: true })).not.toThrow();
+    });
+
     it('has exactly one spawn', () => {
       expect(tilesOfType(parse(stage), 'spawn')).toHaveLength(1);
     });

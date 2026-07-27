@@ -69,7 +69,9 @@ scene.add(player.mesh);
 let enemies = new Enemies(tilemap);
 scene.add(enemies.group);
 
-const cameraFollow = new CameraFollow(camera, player.mesh);
+const cameraFollow = new CameraFollow(camera, player.mesh, {
+  groundY: () => player.elevation,
+});
 
 // The simulation itself lives in world.js so the tests can drive exactly what
 // ships; this object is mutated in place as stages come and go, so the render loop
