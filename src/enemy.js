@@ -60,6 +60,10 @@ export class Enemy {
   reset() {
     this.gx = this.spawn.gx;
     this.gz = this.spawn.gz;
+    // Patrols live on the ground layer. Nothing moves them off it — they take
+    // neither ramps nor platforms — so this is a constant, and it is here so that
+    // catching the player can ask whether the two are even on the same level.
+    this.layer = 0;
     this.prevGx = this.gx;
     this.prevGz = this.gz;
     this.dir = [...this.pattern.start];
@@ -172,6 +176,9 @@ export class Enemies {
    *  - pass-through: the two swapped tiles, each ending up on the other's
    *    previous one, so they crossed without ever sharing a tile.
    *
+   * Both arms require the two to be on the same layer: a patrol under a bridge is
+   * not a patrol you can walk into.
+   *
    * Both sides now move on their own clocks, so this is checked every frame
    * rather than only when the player moves. A stale `player.prev` cannot cause
    * a false positive: for the pass-through arm to match, the enemy's previous
@@ -182,11 +189,12 @@ export class Enemies {
     return (
       this.list.find(
         (e) =>
-          (e.gx === player.gx && e.gz === player.gz) ||
-          (e.gx === player.prevGx &&
-            e.gz === player.prevGz &&
-            e.prevGx === player.gx &&
-            e.prevGz === player.gz),
+          e.layer === player.layer &&
+          ((e.gx === player.gx && e.gz === player.gz) ||
+            (e.gx === player.prevGx &&
+              e.gz === player.prevGz &&
+              e.prevGx === player.gx &&
+              e.prevGz === player.gz)),
       ) ?? null
     );
   }

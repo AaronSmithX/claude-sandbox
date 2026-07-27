@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TileMap, KEY_COLORS } from './tilemap.js';
-import { STAGES } from './levels.js';
+import { STAGES, stageLayers } from './levels.js';
 import { Campaign } from './campaign.js';
 import { Particles } from './particles.js';
 import { Player } from './player.js';
@@ -60,7 +60,7 @@ const inventory = new Inventory();
 const particles = new Particles();
 scene.add(particles.points);
 
-let tilemap = new TileMap(STAGES[0].rows);
+let tilemap = new TileMap(stageLayers(STAGES[0]));
 scene.add(tilemap.group);
 
 const player = new Player(tilemap, inventory);
@@ -162,7 +162,7 @@ function loadStage(stage) {
   scene.remove(enemies.group);
   enemies.dispose();
 
-  tilemap = new TileMap(stage.rows);
+  tilemap = new TileMap(stageLayers(stage));
   scene.add(tilemap.group);
   enemies = new Enemies(tilemap);
   scene.add(enemies.group);

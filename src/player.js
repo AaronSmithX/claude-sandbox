@@ -42,6 +42,9 @@ export class Player {
     const spawn = tilemap.findSpawn();
     this.gx = spawn.gx;
     this.gz = spawn.gz;
+    // The tile itself, because a cell can hold more than one: a bridge deck and the
+    // water under it are the same gx,gz and very different places to be standing.
+    this.tile = tilemap.get(spawn.gx, spawn.gz);
     // The tile stepped off, so an enemy can tell it walked through us.
     this.prevGx = this.gx;
     this.prevGz = this.gz;
@@ -93,6 +96,11 @@ export class Player {
     this._snapToGrid();
   }
 
+  /** Which layer the player is on: 0 is the ground, 1 a deck above it. */
+  get layer() {
+    return this.tile?.layer ?? 0;
+  }
+
   get isMoving() {
     return this._moving;
   }
@@ -103,14 +111,14 @@ export class Player {
   }
 
   /** Standing height on a given tile, which water lowers. */
-  _restY(gx, gz) {
-    return this.restingHeight + this.tilemap.surfaceY(gx, gz);
+  _restY(tile) {
+    return this.restingHeight + this.tilemap.surfaceOf(tile);
   }
 
   _snapToGrid() {
     const p = this.tilemap.gridToWorld(this.gx, this.gz);
-    this.mesh.position.set(p.x, this._restY(this.gx, this.gz), p.z);
-    this._fromHeight = this.tilemap.tileHeight(this.gx, this.gz);
+    this.mesh.position.set(p.x, this._restY(this.tile), p.z);
+    this._fromHeight = this.tilemap.heightOf(this.tile);
     this._toHeight = this._fromHeight;
   }
 
@@ -135,11 +143,19 @@ export class Player {
     this.reset();
   }
 
+  /** Keeps the mesh sitting on its tile, for ground that moves under it. */
+  _followGround() {
+    this._toHeight = this.tilemap.heightOf(this.tile);
+    this._fromHeight = this._toHeight;
+    this.mesh.position.y = this._restY(this.tile);
+  }
+
   /** Returns the player to the spawn tile with nothing carried. */
   reset() {
     const spawn = this.tilemap.findSpawn();
     this.gx = spawn.gx;
     this.gz = spawn.gz;
+    this.tile = this.tilemap.get(spawn.gx, spawn.gz);
     this.prevGx = this.gx;
     this.prevGz = this.gz;
     this._moving = false;
@@ -160,8 +176,8 @@ export class Player {
     this._snapToGrid();
   }
 
-  _wading(gx, gz) {
-    return this.tilemap.get(gx, gz)?.type === 'water';
+  _wading(tile) {
+    return tile?.type === 'water';
   }
 
   /**
@@ -210,45 +226,50 @@ export class Player {
   }
 
   /**
-   * Commits a one-tile move, if the tile allows it.
-   * @param {{carry?: number, silent?: boolean}} [options]
+   * Commits a one-tile move, if the map allows it.
+   *
+   * The map answers *which tile* the step lands on, rather than being asked about a
+   * pair of coordinates: a cell can hold a floor and a deck above it, and which of
+   * them you arrive on depends on the height you set out from.
+   *
+   * @param {{carry?: number, silent?: boolean, sliding?: boolean}} [options]
    *   `carry` is progress left over from the step before, so a slide or a held
    *   walk runs on without pausing for a frame at each tile edge. Held keys are
    *   read on arrival, not on a timer, which is why there is no repeat delay to
-   *   sit through. `silent` suppresses onStep,
-   *   which stops a slide firing a footstep for every tile it crosses.
+   *   sit through. `silent` suppresses onStep, which stops a slide firing a footstep
+   *   for every tile it crosses. `sliding` asks for a slide's rules instead of a
+   *   deliberate step's, which stops a slide opening a door with your key.
    * @returns {boolean} whether the move started
    */
-  _beginMove(dx, dz, { carry = 0, silent = false } = {}) {
+  _beginMove(dx, dz, { carry = 0, silent = false, sliding = false } = {}) {
     if (this._moving || this.inventory.won || this.inventory.dead) return false;
 
-    const nx = this.gx + dx;
-    const nz = this.gz + dz;
-    // canStep, not canEnter: as well as asking whether the tile lets you in, this
-    // asks whether the two tiles are joined — a ledge, a stair taken from the side
-    // or a slide taken uphill all fail here.
-    if (!this.tilemap.canStep(this.gx, this.gz, nx, nz, this.inventory)) return false;
+    const from = this.tile;
+    const to = sliding
+      ? this.tilemap.slideFrom(from, dx, dz, this.inventory)
+      : this.tilemap.stepFrom(from, dx, dz, this.inventory);
+    if (!to) return false;
 
     // Doors open on the way in, spending the matching key.
-    this.tilemap.openDoor(nx, nz, this.inventory);
+    this.tilemap.openDoor(to.gx, to.gz, this.inventory, to.layer);
 
-    const from = { gx: this.gx, gz: this.gz };
-    this.prevGx = this.gx;
-    this.prevGz = this.gz;
-    this.gx = nx;
-    this.gz = nz;
+    this.prevGx = from.gx;
+    this.prevGz = from.gz;
+    this.tile = to;
+    this.gx = to.gx;
+    this.gz = to.gz;
 
-    // Both ends of the slide come from the grid rather than from the current
-    // mesh position, so a hop or a bob in progress cannot be baked into the
-    // start of the next step. Water tiles sit lower, so the descent into the
-    // water happens across the step.
+    // Both ends of the tween come from the grid rather than from the current mesh
+    // position, so a hop or a bob in progress cannot be baked into the start of the
+    // next step. Water tiles sit lower, so the descent into the water happens
+    // across the step.
     const origin = this.tilemap.gridToWorld(from.gx, from.gz);
-    this._from.set(origin.x, this._restY(from.gx, from.gz), origin.z);
-    const target = this.tilemap.gridToWorld(nx, nz);
-    this._to.set(target.x, this._restY(nx, nz), target.z);
-    this._fromHeight = this.tilemap.tileHeight(from.gx, from.gz);
-    this._toHeight = this.tilemap.tileHeight(nx, nz);
-    this._hopScale = this._wading(from.gx, from.gz) || this._wading(nx, nz) ? 0.25 : 1;
+    this._from.set(origin.x, this._restY(from), origin.z);
+    const target = this.tilemap.gridToWorld(to.gx, to.gz);
+    this._to.set(target.x, this._restY(to), target.z);
+    this._fromHeight = this.tilemap.heightOf(from);
+    this._toHeight = this.tilemap.heightOf(to);
+    this._hopScale = this._wading(from) || this._wading(to) ? 0.25 : 1;
     this._t = carry;
     this._moving = true;
     this._direction = [dx, dz];
@@ -265,7 +286,9 @@ export class Player {
       this.onFirstMove?.();
     }
 
-    if (!silent) this.onStep?.(from, { gx: nx, gz: nz });
+    if (!silent) {
+      this.onStep?.({ gx: from.gx, gz: from.gz }, { gx: to.gx, gz: to.gz });
+    }
     return true;
   }
 
@@ -284,6 +307,9 @@ export class Player {
     if (!this._moving) {
       this._relax(dt);
       this._applyPose();
+      // Ground can move: an elevator carries whoever is standing on it, so the
+      // mesh is put back on its tile every frame rather than only when a step ends.
+      this._followGround();
       return;
     }
 
@@ -321,7 +347,7 @@ export class Player {
 
     // Arriving on the tile is what triggers pickups, switches and the goal.
     if (!this._moving) {
-      this.tilemap.onEnter(this.gx, this.gz, this.inventory);
+      this.tilemap.onEnter(this.gx, this.gz, this.inventory, this.layer);
       this._settleOrSlide(carry);
     }
   }
@@ -335,12 +361,11 @@ export class Player {
    */
   _settleOrSlide(carry) {
     const [dx, dz] = this._direction;
-    const onIce = this.tilemap.isSlippery(this.gx, this.gz);
     const canGoOn =
-      onIce &&
+      this.tilemap.isSlipperyTile(this.tile) &&
       !this.inventory.won &&
       !this.inventory.dead &&
-      this.tilemap.canSlideInto(this.gx, this.gz, this.gx + dx, this.gz + dz, this.inventory);
+      this.tilemap.slideFrom(this.tile, dx, dz, this.inventory) !== null;
 
     if (!canGoOn) {
       this._sliding = false;
@@ -352,7 +377,7 @@ export class Player {
       this._sliding = true;
       this.onSlideStart?.();
     }
-    this._beginMove(dx, dz, { carry, silent: true });
+    this._beginMove(dx, dz, { carry, silent: true, sliding: true });
   }
 
   /** Turns the body towards the way it is walking, the short way round. */

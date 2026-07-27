@@ -14,7 +14,10 @@
  * @property {string} id      stable slug, used by tests and save data
  * @property {string} name    shown on the stage-clear panel and in the HUD
  * @property {string} hint    one line of guidance, shown until the player moves
- * @property {string[]} rows  the map, one string per row of the grid
+ * @property {string[]} rows  the ground layer, one string per row of the grid
+ * @property {string[][]} [upper]  further layers above the ground, lowest first — a
+ *   space means "nothing here". This is what a bridge needs: a deck in the same cell
+ *   as the water it crosses.
  */
 
 /**
@@ -107,6 +110,62 @@ const UP_AND_OVER = {
 };
 
 /**
+ * A bridge, which is the thing height on one layer cannot do: the deck and the water
+ * under it are both there, and both usable. The river is the only way to the star and
+ * the bridge is the only way to the tube, so the stage asks for the deck first and
+ * the water second — and the swim runs right under the span.
+ *
+ * @type {Stage}
+ */
+const OVER_AND_UNDER = {
+  id: 'over-and-under',
+  name: 'Over and Under',
+  hint: 'The <b>bridge</b> crosses the river. The river still goes under it.',
+  rows: [
+    '###########',
+    '#@..~~~...#',
+    "#./'~~~'/.#",
+    '#...~~~...#',
+    '#...~~~...#',
+    '#...~~~.O.#',
+    '#...~*~...#',
+    '#...~~~...#',
+    '###########',
+  ],
+  // The deck: one span at level 1, over water that stays water.
+  upper: [
+    ['           ', '           ', '    ...    ', '           ', '           ', '           ', '           ', '           ', '           '],
+  ],
+};
+
+/**
+ * An elevator, and the waiting that comes with it: the platform is the only way up
+ * to the gantry the key sits on, and the only way back down to the door it opens. It
+ * dwells at each end long enough to step on and off, and joins nothing at all while
+ * it is moving.
+ *
+ * @type {Stage}
+ */
+const GOING_UP = {
+  id: 'going-up',
+  name: 'Going Up',
+  hint: 'The <b>platform</b> runs on its own clock. Be standing there when it is.',
+  rows: [
+    '#########',
+    '#@......#',
+    '#.......#',
+    '#...e...#',
+    '#.#W#...#',
+    '###*#####',
+    '#########',
+  ],
+  // The gantry, and the key on it: over the floor, reachable only by platform.
+  upper: [
+    ['         ', '         ', '         ', '     ..w ', '         ', '         ', '         '],
+  ],
+};
+
+/**
  * The original single-level game, kept whole as the finale: nine rooms on a 16x16
  * grid, chained so every mechanic sits on the critical path — ice corridor ->
  * gold door -> inner tube -> red switch -> pink switch -> white key -> violet
@@ -139,10 +198,29 @@ const THE_GAUNTLET = {
 };
 
 /** Every stage, in play order. @type {Stage[]} */
-export const STAGES = [FIRST_STEPS, LOCK_AND_KEY, THIN_ICE, UP_AND_OVER, THE_GAUNTLET];
+export const STAGES = [
+  FIRST_STEPS,
+  LOCK_AND_KEY,
+  THIN_ICE,
+  UP_AND_OVER,
+  OVER_AND_UNDER,
+  GOING_UP,
+  THE_GAUNTLET,
+];
 
 /**
  * The finale's map, which is also the level the game shipped as before there were
  * stages. Exported by name because several tests are written against it.
  */
 export const DEFAULT_MAP = THE_GAUNTLET.rows;
+
+/**
+ * The grids a stage is made of, ground first — which is what `new TileMap(...)`
+ * takes. Most stages are one grid deep; a stage with a bridge is two.
+ *
+ * @param {Stage} stage
+ * @returns {string[][]}
+ */
+export function stageLayers(stage) {
+  return [stage.rows, ...(stage.upper ?? [])];
+}

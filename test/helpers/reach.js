@@ -6,6 +6,10 @@
  * critical path, and whether you can carry them is a question about the route, not
  * about the grid. What these functions are for is the two ways a map can be broken
  * outright — a star walled off, and a switch that seals you in.
+ *
+ * The fill walks *tiles*, not cells, so it understands layers and heights: it asks
+ * the map which tile a step lands on, which makes a ledge a closed edge and a chute
+ * a one-way one.
  */
 
 const DIRECTIONS = [
@@ -15,7 +19,20 @@ const DIRECTIONS = [
   [0, -1],
 ];
 
-const key = (gx, gz) => `${gx},${gz}`;
+/** How a tile is named in the returned set: a cell plus which layer of it. */
+export const tileKey = (tile) => `${tile.gx},${tile.gz},${tile.layer}`;
+
+/**
+ * A platform is joined to every storey it serves, however it happens to be parked
+ * when the map is parsed — over the course of a stage it visits all of them.
+ */
+function servedByElevator(a, b) {
+  const lift = a.type === 'elevator' ? a : b.type === 'elevator' ? b : null;
+  if (!lift) return false;
+  const other = lift === a ? b : a;
+  if (other.type === 'stair' || other.type === 'slide') return false;
+  return other.level >= lift.low - 1e-6 && other.level <= lift.high + 1e-6;
+}
 
 /**
  * Flood fill from the spawn.
@@ -26,12 +43,13 @@ const key = (gx, gz) => `${gx},${gz}`;
  *   another's. The default, `null`, ignores obstacles altogether — which is what
  *   you want when asking whether the star can be got to at all, since a switch can
  *   always move the columns.
- * @returns {Set<string>} `"gx,gz"` for every tile reachable from the spawn
+ * @returns {Set<string>} a `tileKey` for every tile reachable from the spawn
  */
 export function reachableFrom(map, color = null) {
   const start = map.findSpawn();
-  const seen = new Set([key(start.gx, start.gz)]);
-  const queue = [[start.gx, start.gz]];
+  const first = map.get(start.gx, start.gz);
+  const seen = new Set([tileKey(first)]);
+  const queue = [first];
 
   const passable = (t) => {
     if (!t || t.type === 'wall') return false;
@@ -42,16 +60,14 @@ export function reachableFrom(map, color = null) {
   };
 
   while (queue.length) {
-    const [x, z] = queue.shift();
+    const tile = queue.shift();
     for (const [dx, dz] of DIRECTIONS) {
-      const t = map.get(x + dx, z + dz);
-      if (!passable(t) || seen.has(key(t.gx, t.gz))) continue;
-      // Elevation is the map's business, not this fill's: a ledge, a stair taken
-      // from the side and a chute taken uphill are all closed edges. That also
-      // makes the fill directed, which is exactly what a one-way chute is.
-      if (!map.isConnected(x, z, t.gx, t.gz)) continue;
-      seen.add(key(t.gx, t.gz));
-      queue.push([t.gx, t.gz]);
+      for (const to of map.column(tile.gx + dx, tile.gz + dz)) {
+        if (!passable(to) || seen.has(tileKey(to))) continue;
+        if (!map.isConnected(tile, to) && !servedByElevator(tile, to)) continue;
+        seen.add(tileKey(to));
+        queue.push(to);
+      }
     }
   }
   return seen;
@@ -70,11 +86,11 @@ export function reachableFrom(map, color = null) {
 export function sealedIn(map, tile) {
   return ['A', 'B'].filter((phase) => {
     map.phase[tile.color] = phase;
-    return !reachableFrom(map, tile.color).has(key(tile.gx, tile.gz));
+    return !reachableFrom(map, tile.color).has(tileKey(tile));
   });
 }
 
-/** Every tile of a given type, in row-major order. */
+/** Every tile of a given type, on every layer, in row-major order. */
 export function tilesOfType(map, type) {
-  return map.tiles.flat().filter((t) => t.type === type);
+  return map.allTiles().filter((t) => t.type === type);
 }

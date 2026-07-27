@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { TileMap, KEY_COLORS } from '../src/tilemap.js';
-import { STAGES } from '../src/levels.js';
-import { reachableFrom, sealedIn, tilesOfType } from './helpers/reach.js';
+import { STAGES, stageLayers } from '../src/levels.js';
+import { reachableFrom, sealedIn, tileKey, tilesOfType } from './helpers/reach.js';
 
 /**
  * The checks every stage has to pass, run over the whole list. These are the
@@ -13,7 +13,7 @@ import { reachableFrom, sealedIn, tilesOfType } from './helpers/reach.js';
  * stage that fails one cannot be finished at all.
  */
 
-const parse = (stage) => new TileMap(stage.rows, { build: false });
+const parse = (stage) => new TileMap(stageLayers(stage), { build: false });
 
 describe('the stage list', () => {
   it('has stages, each with a unique id', () => {
@@ -39,7 +39,7 @@ for (const stage of STAGES) {
     it('builds its meshes', () => {
       // The headless checks below never touch the mesh code, so this is what says
       // a stair, a chute or a raised floor can actually be put on the screen.
-      expect(() => new TileMap(stage.rows, { build: true })).not.toThrow();
+      expect(() => new TileMap(stageLayers(stage), { build: true })).not.toThrow();
     });
 
     it('has exactly one spawn', () => {
@@ -55,7 +55,7 @@ for (const stage of STAGES) {
       const reachable = reachableFrom(map);
       for (const star of tilesOfType(map, 'star')) {
         expect(
-          reachable.has(`${star.gx},${star.gz}`),
+          reachable.has(tileKey(star)),
           `the star at ${star.gx},${star.gz} is walled off from the spawn`,
         ).toBe(true);
       }

@@ -258,20 +258,27 @@ describe('patrols and height', () => {
   });
 });
 
-describe('canStep', () => {
+describe('taking a step', () => {
   it('still asks what the tile itself allows', () => {
     const map = makeMap(['#####', '#@~.#', '#####']);
     const empty = new Inventory();
     const stocked = new Inventory();
     stocked.setTube(true);
 
-    expect(map.canStep(1, 1, 2, 1, empty)).toBe(false);
-    expect(map.canStep(1, 1, 2, 1, stocked)).toBe(true);
+    const from = map.get(1, 1);
+    expect(map.stepFrom(from, 1, 0, empty)).toBe(null);
+    expect(map.stepFrom(from, 1, 0, stocked)).toBe(map.get(2, 1));
   });
 
   it('says no to a tile off the map', () => {
     const map = makeMap(['###', '#@#', '###']);
-    expect(map.canStep(1, 1, 1, 0, new Inventory())).toBe(false);
-    expect(map.isConnected(1, 1, 99, 99)).toBe(false);
+    expect(map.stepFrom(map.get(1, 1), 0, -1, new Inventory())).toBe(null);
+    expect(map.isConnected(map.get(1, 1), null)).toBe(false);
+  });
+
+  it('says no to a tile that is not next door', () => {
+    const map = makeMap(['####', '#@.#', '#..#', '####']);
+    expect(map.isConnected(map.get(1, 1), map.get(2, 2))).toBe(false);
+    expect(map.isConnected(map.get(1, 1), map.get(1, 1))).toBe(false);
   });
 });

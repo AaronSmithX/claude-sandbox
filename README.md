@@ -32,8 +32,8 @@ to begin before the page has been interacted with.
 
 ## Stages
 
-The game is a short run of stages, played in order from the title screen: four
-that each introduce one thing, then the original single level as the finale with
+The game is a short run of stages, played in order from the title screen: six that
+each introduce one thing, then the original single level as the finale with
 everything on it at once.
 
 | Stage | What it is for |
@@ -42,13 +42,16 @@ everything on it at once.
 | **Lock and Key** | Two keys, two doors, in an order that cannot be skipped. |
 | **Thin Ice** | Three ice runs, the last of which delivers you onto the star. |
 | **Up and Over** | A stair up, a walkway round, and a chute down into the star's pen. |
+| **Over and Under** | A bridge over a river, and the same river swum underneath it. |
+| **Going Up** | An elevator, and the waiting that comes with one. |
 | **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
 
 Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
 stage rather than the run, and **R** restarts it whenever you like.
 
 Stages live in `src/levels.js` as rows of legend characters — content only. Adding
-one is a data change: append a `{ id, name, hint, rows }` entry and
+one is a data change: append a `{ id, name, hint, rows }` entry, plus an `upper`
+array of further grids if it needs a deck over something, and
 `test/levels.test.js` will hold the new map to the same checks as the rest (one
 spawn, a reachable star, a key for every door, no switch that can seal you in).
 
@@ -69,6 +72,8 @@ corner says which stage you are on.
 | **Raised floor** | Ground that sits higher up. You cannot step between two heights: a ledge is a wall you can see over. |
 | **Stairs** | Join two floors one level apart, and work in both directions — but only along the way they run. Their flanks are the side of a staircase, not a way on. |
 | **Slides** | A chute. You can only get on at the top, and once you do you ride it to the bottom — there is no walking back up one. |
+| **Bridges** | A deck one level up, in the same square as whatever it crosses. Walk over the top, or go underneath — the water below is still water. |
+| **Elevators** | A platform that runs between the floors beside it on its own clock. It pauses at each end long enough to step on and off, and joins nothing at all while it is moving. |
 | **Star** | Reaching it clears the stage. |
 | **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one restarts the stage. |
 
@@ -100,6 +105,23 @@ Both a stair and a chute work the rest out from the ground on either side of the
 map states its elevation once, with its floors, and the ramps agree with it or the
 stage refuses to load. Patrols use neither, so a raised walkway is a room of its
 own — the way a door shuts a patrol into one.
+
+### Layers
+
+Height on its own cannot make a bridge: a deck has to be *over* something that is
+still there. So a map can be several grids deep, ground first, and a cell can hold
+more than one tile — a river on the ground layer and a span above it.
+
+Which tile a step lands on is decided by the height you set out from, and since two
+tiles in one cell are never at the same height, that is never a guess. Walk the deck
+at level 1 and the water beneath is somebody else's problem; swim it at level 0 and
+the deck passes overhead. A patrol underneath cannot catch you on the span.
+
+An **elevator** is the other half of the idea: ground whose height moves. It reads
+the floors around it to learn which storeys it serves, then runs between them on a
+four-second cycle — dwell, rise, dwell, fall. While it is moving it is joined to
+nothing, so you can neither board it nor step off; while it is parked it is simply
+floor at that storey. Standing on one carries you, and the camera goes up with you.
 
 ### Enemies
 
@@ -237,7 +259,7 @@ site and publishes `dist/` to GitHub Pages.
 | `src/world.js` | One simulation step: update order and the collision check, shared with the tests. |
 | `src/levels.js` | The stages: rows of legend characters, and nothing else. |
 | `src/campaign.js` | Which stage you are on and what happens next: title, playing, clear, dead, complete. |
-| `src/tilemap.js` | One loaded stage: tile meshes and all the level rules. |
+| `src/tilemap.js` | One loaded stage: tile meshes, layers, heights and all the level rules. |
 | `src/player.js` | Movement, held directions, facing and the walk cycle. |
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
 | `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
@@ -267,6 +289,7 @@ site and publishes `dist/` to GitHub Pages.
 
   '  floor one level up      "  floor two levels up
   /  stair    \  slide (a chute)
+  E e  elevator, starting at the top / at the bottom
 
   g v w   keys  — gold, violet, white
   G V W   doors — gold, violet, white

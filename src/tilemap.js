@@ -28,6 +28,12 @@ export const SWITCH_COLORS = {
  *   '  floor one level up      "  floor two levels up
  *   /  stair — joins two floors one level apart, walkable both ways
  *   \  slide — a chute you can only enter at the top, and only ride down
+ *   E e  elevator — a platform running between the floors beside it, starting at
+ *        the top (E) or the bottom (e), so a pair of them can pass each other
+ *
+ * A map can also be several grids deep, ground first, which is what a bridge needs:
+ * a deck on the layer above the water it crosses. A space means "nothing here" —
+ * the usual case above the ground, and a hole in it down below.
  *
  *   g v w   keys  — gold, violet, white
  *   G V W   doors — gold, violet, white (a key opens only its own colour)
@@ -60,6 +66,8 @@ export const LEGEND = {
   // either side of them, so a map never has to state it twice.
   '/': { type: 'stair' },
   '\\': { type: 'slide' },
+  E: { type: 'elevator', startUp: true },
+  e: { type: 'elevator' },
   '@': { type: 'spawn' },
   '*': { type: 'star' },
   O: { type: 'tube' },
@@ -117,6 +125,18 @@ const RAMPS = new Set(['stair', 'slide']);
 /** The opposite direction. `|| 0` because negating a zero gives -0. */
 const opposite = ([dx, dz]) => [-dx || 0, -dz || 0];
 
+/**
+ * Whether two heights are the same height. Levels are compared rather than equated
+ * because a chute's are fractions of a drop, and an elevator's is a moving number
+ * that has to count as level with a storey when it arrives at one.
+ */
+const same = (a, b) => Math.abs(a - b) < 1e-6;
+
+// A platform's cycle: dwell at the bottom, rise, dwell at the top, fall — a quarter
+// of the period each. The dwells are what make it rideable; a step takes 0.14s, so a
+// second of standing still at each end is room enough to get on and off.
+export const ELEVATOR_PERIOD = 4;
+
 // Floor buttons: the grey plate they sit on, and the button's height when up and
 // when pressed.
 const SWITCH_BASE_SIZE = TILE_SIZE * 0.78;
@@ -133,16 +153,22 @@ const SWITCH_DOWN_Y = 0.035;
  */
 export class TileMap {
   /**
-   * @param {string[]} map rows of legend characters; every row must be the same
-   *   length. Production passes a stage's `rows`; tests pass miniature levels.
+   * @param {string[]|string[][]} map one layer's rows of legend characters, or
+   *   several layers, ground first — every row the same length. Production passes a
+   *   stage's `rows`; tests pass miniature levels. A space means "nothing here",
+   *   which on an upper layer is the usual case and on the ground is a hole.
    * @param {{build?: boolean}} [options] `build: false` skips all mesh
    *   construction, which is how the headless tests run. Every mesh write in
    *   this class is guarded, so the rules behave identically either way.
    */
   constructor(map, { build = true } = {}) {
-    this.map = map;
-    this.rows = map.length;
-    this.cols = map[0].length;
+    // One layer or many: a bridge needs two tiles in the same cell, so a map is
+    // really a stack of grids. Most stages are one grid deep and say so by passing
+    // it directly.
+    this.layers = Array.isArray(map[0]) ? /** @type {string[][]} */ (map) : [map];
+    this.map = this.layers[0];
+    this.rows = this.map.length;
+    this.cols = this.map[0].length;
     this.build = build;
     this.group = new THREE.Group();
     this.spawn = { gx: 1, gz: 1 };
@@ -166,32 +192,66 @@ export class TileMap {
   // --- Map data -------------------------------------------------------------
 
   _parse() {
+    // `tiles` is the ground layer, one tile per cell — which is what nearly every
+    // rule wants. `columns` is the whole stack, ground first, for the places where
+    // a cell can hold more than one thing.
     this.tiles = [];
+    this.columns = [];
     this.enemySpawns = [];
     // Kept flat, because pressing a switch has to reach every other switch of
     // its colour wherever it is on the map.
     this._switches = [];
+    this._elevators = [];
+
     for (let z = 0; z < this.rows; z++) {
-      if (this.map[z].length !== this.cols) {
-        throw new Error(
-          `Map row ${z} is ${this.map[z].length} characters, expected ${this.cols}`,
-        );
-      }
-      const row = [];
-      for (let x = 0; x < this.cols; x++) {
-        const char = this.map[z][x];
-        const def = LEGEND[char];
-        if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
-        if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
-        if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
-        const tile = { level: 0, ...def, gx: x, gz: z };
-        if (tile.type === 'switch') this._switches.push(tile);
-        row.push(tile);
-      }
-      this.tiles.push(row);
+      this.tiles.push(new Array(this.cols).fill(null));
+      this.columns.push(Array.from({ length: this.cols }, () => []));
     }
 
+    this.layers.forEach((rows, layer) => {
+      if (rows.length !== this.rows) {
+        throw new Error(
+          `Map layer ${layer} has ${rows.length} rows, expected ${this.rows}`,
+        );
+      }
+
+      for (let z = 0; z < this.rows; z++) {
+        if (rows[z].length !== this.cols) {
+          throw new Error(
+            `Map row ${z} is ${rows[z].length} characters, expected ${this.cols}`,
+          );
+        }
+
+        for (let x = 0; x < this.cols; x++) {
+          const char = rows[z][x];
+          // Nothing on this layer here: the usual case above the ground, and a hole
+          // in the ground when it happens down there.
+          if (char === ' ') continue;
+
+          const def = LEGEND[char];
+          if (!def) throw new Error(`Unknown map character "${char}" at ${x},${z}`);
+          if (def.type === 'spawn') this.spawn = { gx: x, gz: z };
+          if (def.enemy) this.enemySpawns.push({ gx: x, gz: z, pattern: def.enemy });
+
+          // A layer sets the height, and a character can add to it: `'` on the
+          // deck layer is one level above the deck.
+          const tile = { ...def, gx: x, gz: z, layer, level: layer + (def.level ?? 0) };
+          if (tile.type === 'switch') this._switches.push(tile);
+          if (tile.type === 'elevator') this._elevators.push(tile);
+
+          this.columns[z][x].push(tile);
+          if (layer === 0) this.tiles[z][x] = tile;
+        }
+      }
+    });
+
     this._deriveRamps();
+    this._deriveElevators();
+  }
+
+  /** Every tile on every layer, ground first. */
+  allTiles() {
+    return this.columns.flat(2);
   }
 
   /**
@@ -211,7 +271,7 @@ export class TileMap {
   _deriveRamps() {
     const chutes = new Set();
 
-    for (const tile of this.tiles.flat()) {
+    for (const tile of this.allTiles()) {
       if (tile.type === 'stair') this._deriveStair(tile);
       if (tile.type === 'slide' && !chutes.has(tile)) {
         for (const part of this._deriveChute(tile)) chutes.add(part);
@@ -219,10 +279,17 @@ export class TileMap {
     }
   }
 
-  /** The level of a tile you can stand on, or null for walls and ramps. */
-  _groundLevel(gx, gz) {
-    const t = this.get(gx, gz);
-    if (!t || t.type === 'wall' || RAMPS.has(t.type)) return null;
+  /**
+   * The level of a tile you can stand on, or null for holes, walls and ramps.
+   *
+   * A ramp reads its ends on its own layer: a stair up to a bridge deck is authored
+   * on the ground layer, and the deck's landing is raised ground there. That keeps
+   * derivation local, and keeps a deck from silently becoming the end of a stair
+   * that was meant for the floor underneath it.
+   */
+  _groundLevel(gx, gz, layer = 0) {
+    const t = this.get(gx, gz, layer);
+    if (!t || t.type === 'wall' || RAMPS.has(t.type) || t.type === 'elevator') return null;
     return t.level;
   }
 
@@ -240,8 +307,8 @@ export class TileMap {
     const found = [];
     for (const option of options) {
       const [dx, dz] = option.axis;
-      const back = this._groundLevel(tile.gx - dx, tile.gz - dz);
-      const forward = this._groundLevel(tile.gx + dx, tile.gz + dz);
+      const back = this._groundLevel(tile.gx - dx, tile.gz - dz, tile.layer);
+      const forward = this._groundLevel(tile.gx + dx, tile.gz + dz, tile.layer);
       if (back === null || forward === null || back === forward) continue;
       found.push({ ...option, low: Math.min(back, forward), high: Math.max(back, forward) });
     }
@@ -271,7 +338,8 @@ export class TileMap {
       );
     }
 
-    const higherIsForward = this._groundLevel(tile.gx + axis[0], tile.gz + axis[1]) === high;
+    const higherIsForward =
+      this._groundLevel(tile.gx + axis[0], tile.gz + axis[1], tile.layer) === high;
     tile.run = run;
     tile.low = low;
     tile.high = high;
@@ -279,6 +347,9 @@ export class TileMap {
     tile.level = low + 0.5;
     tile.up = higherIsForward ? axis : opposite(axis);
     tile.dir = opposite(tile.up);
+    // The levels at its two ends. Connectivity asks this rather than working the
+    // heights out again, which is what keeps a fractional chute exact.
+    tile.joins = [low, high];
   }
 
   /**
@@ -294,7 +365,7 @@ export class TileMap {
     const [dx, dz] = run === 'x' ? [1, 0] : [0, 1];
 
     // Walk to both ends of the run of slide tiles.
-    const isSlide = (gx, gz) => this.get(gx, gz)?.type === 'slide';
+    const isSlide = (gx, gz) => this.get(gx, gz, tile.layer)?.type === 'slide';
     let backX = tile.gx;
     let backZ = tile.gz;
     while (isSlide(backX - dx, backZ - dz)) {
@@ -303,13 +374,13 @@ export class TileMap {
     }
     const parts = [];
     for (let x = backX, z = backZ; isSlide(x, z); x += dx, z += dz) {
-      parts.push(this.get(x, z));
+      parts.push(this.get(x, z, tile.layer));
     }
 
     const first = parts[0];
     const last = parts[parts.length - 1];
-    const above = this._groundLevel(first.gx - dx, first.gz - dz);
-    const below = this._groundLevel(last.gx + dx, last.gz + dz);
+    const above = this._groundLevel(first.gx - dx, first.gz - dz, tile.layer);
+    const below = this._groundLevel(last.gx + dx, last.gz + dz, tile.layer);
     if (above === null || below === null) {
       throw new Error(
         `The chute at ${first.gx},${first.gz} does not land: a slide needs floor ` +
@@ -329,14 +400,56 @@ export class TileMap {
     const top = Math.max(above, below);
     const drop = Math.abs(above - below) / (descending.length + 1);
 
+    const bottom = Math.min(above, below);
     descending.forEach((part, index) => {
       part.run = run;
       part.dir = step;
       part.up = opposite(step);
       part.level = top - drop * (index + 1);
     });
+    // Each tile joins whatever is behind and ahead of it along the fall, which is
+    // either the next tile of the chute or the floor at one end.
+    descending.forEach((part, index) => {
+      const behind = index === 0 ? top : descending[index - 1].level;
+      const ahead = index === descending.length - 1 ? bottom : descending[index + 1].level;
+      part.joins = [behind, ahead];
+    });
 
     return parts;
+  }
+
+  /**
+   * Works out what every elevator serves.
+   *
+   * Like a ramp, a platform reads the map rather than being told: it travels
+   * between the lowest and highest ground next to it. So the floors say where the
+   * storeys are, and the platform goes to all of them.
+   */
+  _deriveElevators() {
+    for (const tile of this._elevators) {
+      const levels = new Set();
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const neighbour of this.column(tile.gx + dx, tile.gz + dz)) {
+          if (neighbour.type === 'wall' || RAMPS.has(neighbour.type)) continue;
+          if (neighbour.type === 'elevator') continue;
+          levels.add(neighbour.level);
+        }
+      }
+
+      if (levels.size < 2) {
+        throw new Error(
+          `The elevator at ${tile.gx},${tile.gz} goes nowhere: it needs floors at ` +
+            'two different heights beside it',
+        );
+      }
+
+      tile.low = Math.min(...levels);
+      tile.high = Math.max(...levels);
+      // Half a cycle apart, so a pair of platforms authored `E` and `e` pass each
+      // other rather than moving as one.
+      tile.phase = tile.startUp ? 0.5 : 0;
+      tile.level = tile.startUp ? tile.high : tile.low;
+    }
   }
 
   /**
@@ -345,7 +458,7 @@ export class TileMap {
    * @returns {'x'|'z'}
    */
   _chuteRun(tile) {
-    const isSlide = (gx, gz) => this.get(gx, gz)?.type === 'slide';
+    const isSlide = (gx, gz) => this.get(gx, gz, tile.layer)?.type === 'slide';
     const alongX = isSlide(tile.gx - 1, tile.gz) || isSlide(tile.gx + 1, tile.gz);
     const alongZ = isSlide(tile.gx, tile.gz - 1) || isSlide(tile.gx, tile.gz + 1);
 
@@ -359,9 +472,20 @@ export class TileMap {
     return this._rampAxis(tile, 'slide').run;
   }
 
-  get(gx, gz) {
+  /**
+   * One tile. `layer` 0 is the ground, 1 the deck above it, and so on — so the
+   * no-argument form still means what it always did.
+   */
+  get(gx, gz, layer = 0) {
     if (gz < 0 || gz >= this.rows || gx < 0 || gx >= this.cols) return null;
-    return this.tiles[gz][gx];
+    if (layer === 0) return this.tiles[gz][gx];
+    return this.columns[gz][gx][layer] ?? null;
+  }
+
+  /** Everything stacked in one cell, ground first. Empty off the map. */
+  column(gx, gz) {
+    if (gz < 0 || gz >= this.rows || gx < 0 || gx >= this.cols) return [];
+    return this.columns[gz][gx];
   }
 
   // Convert grid coordinates to world-space (tiles centered on the origin).
@@ -385,7 +509,7 @@ export class TileMap {
     const t = this.get(gx, gz);
     if (!t) return false;
     if (t.type === 'wall' || t.type === 'water' || t.type === 'door') return false;
-    if (RAMPS.has(t.type)) return false;
+    if (RAMPS.has(t.type) || t.type === 'elevator') return false;
     if (t.type === 'obstacle') return !this.isRaised(t);
     return true;
   }
@@ -399,24 +523,37 @@ export class TileMap {
    * of the water sink, so it is the height of the *tile* rather than of whatever is
    * standing on it — which is what the camera follows.
    */
-  tileHeight(gx, gz) {
-    return (this.get(gx, gz)?.level ?? 0) * LEVEL_RISE;
+  tileHeight(gx, gz, layer = 0) {
+    return this.heightOf(this.get(gx, gz, layer));
+  }
+
+  /** @param {?object} tile */
+  heightOf(tile) {
+    return (tile?.level ?? 0) * LEVEL_RISE;
   }
 
   /**
    * Where something standing on this tile sits. That is the tile's own height, less
    * the sink if it is water — the one tile you stand *in* rather than on.
    */
-  surfaceY(gx, gz) {
-    const t = this.get(gx, gz);
-    if (!t) return 0;
-    return t.level * LEVEL_RISE - (t.type === 'water' ? WATER_SINK : 0);
+  surfaceY(gx, gz, layer = 0) {
+    return this.surfaceOf(this.get(gx, gz, layer));
+  }
+
+  /** @param {?object} tile */
+  surfaceOf(tile) {
+    if (!tile) return 0;
+    return this.heightOf(tile) - (tile.type === 'water' ? WATER_SINK : 0);
   }
 
   /** True when standing here means sliding on: ice, and the slides that fall. */
-  isSlippery(gx, gz) {
-    const type = this.get(gx, gz)?.type;
-    return type === 'ice' || type === 'slide';
+  isSlippery(gx, gz, layer = 0) {
+    return this.isSlipperyTile(this.get(gx, gz, layer));
+  }
+
+  /** @param {?object} tile */
+  isSlipperyTile(tile) {
+    return tile?.type === 'ice' || tile?.type === 'slide';
   }
 
   /**
@@ -430,18 +567,44 @@ export class TileMap {
    *  - a slide is one-way. It may only be entered at the top and only ridden
    *    downhill, which is what makes a chute a commitment rather than a shortcut.
    */
-  isConnected(fromGx, fromGz, toGx, toGz) {
-    const from = this.get(fromGx, fromGz);
-    const to = this.get(toGx, toGz);
+  isConnected(from, to) {
     if (!from || !to) return false;
 
-    const move = [toGx - fromGx, toGz - fromGz];
+    const move = [to.gx - from.gx, to.gz - from.gz];
+    if (Math.abs(move[0]) + Math.abs(move[1]) !== 1) return false;
     if (!this._allowsMove(from, move)) return false;
     if (!this._allowsMove(to, move)) return false;
 
-    // Neither end is a ramp, so this is ground to ground: the heights must match.
-    if (!RAMPS.has(from.type) && !RAMPS.has(to.type)) return from.level === to.level;
-    return true;
+    // A ramp joins two known levels, so the tile at the other end has to be at one
+    // of them. Asking the ramp rather than measuring keeps a chute's fractional
+    // heights exact, however many tiles it falls across.
+    if (RAMPS.has(from.type) && !from.joins.some((level) => same(level, to.level))) {
+      return false;
+    }
+    if (RAMPS.has(to.type) && !to.joins.some((level) => same(level, from.level))) {
+      return false;
+    }
+    if (RAMPS.has(from.type) || RAMPS.has(to.type)) return true;
+
+    // Ground to ground: the heights must match. An elevator is ground whose height
+    // moves, so it is joined to a storey only while it is level with it.
+    return same(from.level, to.level);
+  }
+
+  /**
+   * Which tile you arrive on stepping one tile in a direction, or null if nothing
+   * over there joins where you are.
+   *
+   * This is what layers need: a cell can hold a floor and a bridge deck above it,
+   * and which of them you step onto depends on which one you are level with. Since
+   * two tiles in a cell are never at the same height, that is never a guess.
+   */
+  stepTarget(from, dx, dz) {
+    if (!from) return null;
+    for (const to of this.column(from.gx + dx, from.gz + dz)) {
+      if (this.isConnected(from, to)) return to;
+    }
+    return null;
   }
 
   /** Whether a ramp permits being crossed this way. Ordinary ground permits all. */
@@ -455,31 +618,31 @@ export class TileMap {
   }
 
   /**
-   * Whether the player, carrying `inventory`, may take one step from one tile to
-   * the next: the destination has to allow them in, and the two tiles have to be
-   * joined. Doors and water are the destination's business; height is the pair's.
+   * The tile a deliberate step from `from` lands on, or null when the step cannot be
+   * taken. Two questions in one: is there anything over there joined to where you
+   * stand, and does it let you in.
    */
-  canStep(fromGx, fromGz, toGx, toGz, inventory) {
-    if (!this.canEnter(toGx, toGz, inventory)) return false;
-    return this.isConnected(fromGx, fromGz, toGx, toGz);
+  stepFrom(from, dx, dz, inventory) {
+    const to = this.stepTarget(from, dx, dz);
+    if (!to || !this.canEnterTile(to, inventory)) return null;
+    return to;
   }
 
   /**
-   * Whether something sliding out of control may carry on into the next tile.
-   * Everything the player could walk onto, minus shut doors: a slide is not a
-   * decision, so it must not spend a key for you. You stop against the door and
-   * open it by walking into it deliberately.
+   * The tile a slide carries you on to, or null when the ride ends here. Everything
+   * a deliberate step could reach, minus shut doors: a slide is not a decision, so
+   * it must not spend a key for you. You stop against the door and open it by
+   * walking into it deliberately.
    */
-  canSlideInto(fromGx, fromGz, toGx, toGz, inventory) {
-    const t = this.get(toGx, toGz);
-    if (!t) return false;
-    if (t.type === 'door' && !t.open) return false;
-    return this.canStep(fromGx, fromGz, toGx, toGz, inventory);
+  slideFrom(from, dx, dz, inventory) {
+    const to = this.stepTarget(from, dx, dz);
+    if (!to || (to.type === 'door' && !to.open)) return null;
+    return this.canEnterTile(to, inventory) ? to : null;
   }
 
   /**
    * Whether a patrol may take a step. Patrols keep to the level they spawned on:
-   * stairs and slides are not theirs to use, and a ledge stops them exactly as it
+   * ramps and platforms are not theirs to use, and a ledge stops them exactly as it
    * stops the player. So a raised walkway is a room of its own, the way a door
    * shuts a patrol into one.
    */
@@ -488,7 +651,7 @@ export class TileMap {
     const from = this.get(fromGx, fromGz);
     const to = this.get(toGx, toGz);
     if (!from || !to || RAMPS.has(from.type)) return false;
-    return from.level === to.level;
+    return same(from.level, to.level);
   }
 
   // --- Rules ----------------------------------------------------------------
@@ -498,9 +661,17 @@ export class TileMap {
     return tile.type === 'obstacle' && tile.group === this.phase[tile.color];
   }
 
-  /** Can the player, carrying `inventory`, step onto this tile? */
-  canEnter(gx, gz, inventory) {
-    const t = this.get(gx, gz);
+  /**
+   * Can the player, carrying `inventory`, stand on this tile? Coordinates name the
+   * ground layer unless a layer is given; `canEnterTile` is the same question asked
+   * about a tile you already have in your hand.
+   */
+  canEnter(gx, gz, inventory, layer = 0) {
+    return this.canEnterTile(this.get(gx, gz, layer), inventory);
+  }
+
+  /** @param {?object} t */
+  canEnterTile(t, inventory) {
     if (!t) return false;
 
     switch (t.type) {
@@ -521,8 +692,8 @@ export class TileMap {
    * Spends a key to open a closed door. Called before the move starts, so the
    * panel has the whole step to swing out of the way as the player walks in.
    */
-  openDoor(gx, gz, inventory) {
-    const t = this.get(gx, gz);
+  openDoor(gx, gz, inventory, layer = 0) {
+    const t = this.get(gx, gz, layer);
     if (!t || t.type !== 'door' || t.open) return false;
     if (!inventory.useKey(t.color)) return false;
     t.open = true;
@@ -531,8 +702,8 @@ export class TileMap {
   }
 
   /** Applies whatever the tile does once the player has arrived on it. */
-  onEnter(gx, gz, inventory) {
-    const t = this.get(gx, gz);
+  onEnter(gx, gz, inventory, layer = 0) {
+    const t = this.get(gx, gz, layer);
     if (!t) return;
 
     switch (t.type) {
@@ -609,27 +780,32 @@ export class TileMap {
   _resetState() {
     // Group A is the one raised at the start of the level.
     this.phase = { red: 'A', cyan: 'A', pink: 'A' };
+    // Platforms and pickup bobs are driven by this, so a retry starts them over.
+    this._elapsed = 0;
 
-    for (const row of this.tiles) {
-      for (const t of row) {
-        t.taken = false;
-        t.open = false;
-        // Whether a switch starts down is authored per tile, by the legend
-        // character used for it.
-        if (t.type === 'switch') t.pressed = t.startPressed === true;
-        if (t.mesh) t.mesh.visible = true;
-        if (t.swing) t.swing.rotation.y = 0;
-        if (t.columns) {
-          t.columns.position.y =
-            t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
-        }
-        if (t.button) {
-          const down = this.isPressed(t);
-          t.button.position.y = t.baseY + (down ? SWITCH_DOWN_Y : SWITCH_UP_Y);
-          t.button.material.color.copy(down ? t.downColor : t.idleColor);
-          t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
-        }
+    for (const t of this.allTiles()) {
+      t.taken = false;
+      t.open = false;
+      // Whether a switch starts down is authored per tile, by the legend
+      // character used for it.
+      if (t.type === 'switch') t.pressed = t.startPressed === true;
+      if (t.mesh) t.mesh.visible = true;
+      if (t.swing) t.swing.rotation.y = 0;
+      if (t.columns) {
+        t.columns.position.y =
+          t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
       }
+      if (t.button) {
+        const down = this.isPressed(t);
+        t.button.position.y = t.baseY + (down ? SWITCH_DOWN_Y : SWITCH_UP_Y);
+        t.button.material.color.copy(down ? t.downColor : t.idleColor);
+        t.button.material.emissive.copy(down ? t.downEmissive : t.idleEmissive);
+      }
+      if (t.type === 'elevator') {
+        t.level = t.startUp ? t.high : t.low;
+        if (t.platform) t.platform.position.y = this.heightOf(t);
+      }
+
     }
   }
 
@@ -656,38 +832,63 @@ export class TileMap {
     // doorway the player is already walking into.
     const kDoor = 1 - Math.pow(0.00002, dt);
 
-    for (const row of this.tiles) {
-      for (const t of row) {
-        if (t.columns) {
-          const target = t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
-          t.columns.position.y += (target - t.columns.position.y) * k;
-        }
-
-        // A door swings out of the doorway rather than blinking out of existence.
-        if (t.swing) {
-          const target = t.open ? DOOR_OPEN_ANGLE : 0;
-          t.swing.rotation.y += (target - t.swing.rotation.y) * kDoor;
-        }
-
-        // A pressed button sinks into its plate and goes distinctly darker —
-        // colour is what actually reads at this camera distance.
-        if (t.button) {
-          const pressed = this.isPressed(t);
-          const target = t.baseY + (pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y);
-          t.button.position.y += (target - t.button.position.y) * k;
-          t.button.material.color.lerp(pressed ? t.downColor : t.idleColor, k);
-          t.button.material.emissive.lerp(pressed ? t.downEmissive : t.idleEmissive, k);
-        }
-
-        // Pickups bob so they read as collectable. Spinning happens on an inner
-        // group, so a tilted pickup turns about the vertical axis instead of
-        // tumbling — a flat torus spun directly would go edge-on and vanish.
-        if (t.mesh && t.bobBase !== undefined && !t.taken) {
-          t.mesh.position.y = t.bobBase + Math.sin(this._elapsed * 2 + t.gx + t.gz) * 0.08;
-          if (t.spinner) t.spinner.rotation.y += dt * 1.4;
-        }
-      }
+    // Platforms are game state, not decoration: where one is decides what it is
+    // joined to, so this runs before anything asks to move. tickWorld already
+    // updates the map first, which is what makes that true.
+    for (const t of this._elevators) {
+      t.level = this._elevatorLevel(t);
+      if (t.platform) t.platform.position.y = this.heightOf(t);
     }
+
+    for (const t of this.allTiles()) {
+      if (t.columns) {
+        const target = t.baseY + (this.isRaised(t) ? COLUMN_RAISED_Y : COLUMN_RETRACTED_Y);
+        t.columns.position.y += (target - t.columns.position.y) * k;
+      }
+
+      // A door swings out of the doorway rather than blinking out of existence.
+      if (t.swing) {
+        const target = t.open ? DOOR_OPEN_ANGLE : 0;
+        t.swing.rotation.y += (target - t.swing.rotation.y) * kDoor;
+      }
+
+      // A pressed button sinks into its plate and goes distinctly darker —
+      // colour is what actually reads at this camera distance.
+      if (t.button) {
+        const pressed = this.isPressed(t);
+        const target = t.baseY + (pressed ? SWITCH_DOWN_Y : SWITCH_UP_Y);
+        t.button.position.y += (target - t.button.position.y) * k;
+        t.button.material.color.lerp(pressed ? t.downColor : t.idleColor, k);
+        t.button.material.emissive.lerp(pressed ? t.downEmissive : t.idleEmissive, k);
+      }
+
+      // Pickups bob so they read as collectable. Spinning happens on an inner
+      // group, so a tilted pickup turns about the vertical axis instead of
+      // tumbling — a flat torus spun directly would go edge-on and vanish.
+      if (t.mesh && t.bobBase !== undefined && !t.taken) {
+        t.mesh.position.y = t.bobBase + Math.sin(this._elapsed * 2 + t.gx + t.gz) * 0.08;
+        if (t.spinner) t.spinner.rotation.y += dt * 1.4;
+      }
+
+    }
+  }
+
+  /**
+   * Where a platform is in its cycle: it dwells at the bottom, rises, dwells at the
+   * top and falls, a quarter of the period each. The dwells are exact, so a platform
+   * standing at a storey counts as level with it; the travel is eased, so it sets
+   * off and arrives gently rather than snapping into motion.
+   */
+  _elevatorLevel(tile) {
+    const cycle = (this._elapsed / ELEVATOR_PERIOD + tile.phase) % 1;
+    const ease = (t) => t * t * (3 - 2 * t);
+
+    if (cycle < 0.25) return tile.low;
+    if (cycle < 0.5) {
+      return tile.low + (tile.high - tile.low) * ease((cycle - 0.25) * 4);
+    }
+    if (cycle < 0.75) return tile.high;
+    return tile.high - (tile.high - tile.low) * ease((cycle - 0.75) * 4);
   }
 
   // --- Mesh construction ----------------------------------------------------
@@ -731,70 +932,95 @@ export class TileMap {
       return plinths.get(height);
     };
 
-    for (let z = 0; z < this.rows; z++) {
-      for (let x = 0; x < this.cols; x++) {
-        const tile = this.tiles[z][x];
-        const world = this.gridToWorld(x, z);
-        // Everything that sits on this tile — a door, a button, a pickup's bob —
-        // is placed relative to the height of its ground.
-        const height = this.tileHeight(x, z);
-        tile.baseY = height;
-        world.y = height;
+    for (const tile of this.allTiles()) {
+      const { gx: x, gz: z } = tile;
+      const world = this.gridToWorld(x, z);
+      // Everything that sits on this tile — a door, a button, a pickup's bob —
+      // is placed relative to the height of its ground.
+      const height = this.heightOf(tile);
+      tile.baseY = height;
+      world.y = height;
 
-        if (tile.type === 'wall') {
-          const mesh = new THREE.Mesh(wallGeo, wallMat);
-          mesh.position.set(world.x, 0.5, world.z);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          this.group.add(mesh);
-          continue;
-        }
+      if (tile.type === 'elevator') {
+        // Guides first, standing still, then the platform that rides between
+        // them — the platform is its own object so `update` can move it.
+        const guides = buildElevatorGuides(tile, stoneMat);
+        guides.position.set(world.x, 0, world.z);
+        this.group.add(guides);
 
-        if (tile.type === 'water') {
-          const mesh = new THREE.Mesh(waterGeo, waterMat);
-          mesh.position.set(world.x, height - 0.15, world.z);
-          mesh.receiveShadow = true;
-          this.group.add(mesh);
-          continue;
-        }
+        const platform = buildPlatform(this._litMaterial(0x7f8ea3, 0.12), stoneMat);
+        platform.position.set(world.x, height, world.z);
+        tile.platform = platform;
+        this.group.add(platform);
+        continue;
+      }
 
-        if (tile.type === 'stair') {
-          const stair = buildStair(tile, this._litMaterial(0x6b7686, 0.08), stoneMat);
-          stair.position.set(world.x, 0, world.z);
-          this.group.add(stair);
-          continue;
-        }
+      if (tile.type === 'wall') {
+        const mesh = new THREE.Mesh(wallGeo, wallMat);
+        mesh.position.set(world.x, 0.5, world.z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.group.add(mesh);
+        continue;
+      }
 
-        if (tile.type === 'slide') {
-          const slide = buildSlide(tile, this._chuteDrop(tile), iceMat, stoneMat);
-          slide.position.set(world.x, 0, world.z);
-          this.group.add(slide);
-          continue;
-        }
+      if (tile.type === 'water') {
+        const mesh = new THREE.Mesh(waterGeo, waterMat);
+        mesh.position.set(world.x, height - 0.15, world.z);
+        mesh.receiveShadow = true;
+        this.group.add(mesh);
+        continue;
+      }
 
-        // Every other tile gets ground underneath, so opening a door or retracting
-        // columns reveals something to stand on rather than a hole. Ice is that
-        // ground rather than something on top of it: you glide across the level,
-        // not up onto anything.
-        const flat = height === 0;
-        const mat = tile.type === 'ice' ? iceMat : (x + z) % 2 === 0 ? floorMat : floorMatAlt;
+      if (tile.type === 'stair') {
+        const stair = buildStair(tile, this._litMaterial(0x6b7686, 0.08), stoneMat);
+        stair.position.set(world.x, 0, world.z);
+        this.group.add(stair);
+        continue;
+      }
+
+      if (tile.type === 'slide') {
+        const slide = buildSlide(tile, this._chuteDrop(tile), iceMat, stoneMat);
+        slide.position.set(world.x, 0, world.z);
+        this.group.add(slide);
+        continue;
+      }
+
+      // Every other tile gets ground underneath, so opening a door or retracting
+      // columns reveals something to stand on rather than a hole. Ice is that
+      // ground rather than something on top of it: you glide across the level,
+      // not up onto anything.
+      const flat = height === 0;
+      const mat = tile.type === 'ice' ? iceMat : (x + z) % 2 === 0 ? floorMat : floorMatAlt;
+
+      if (tile.layer > 0) {
+        // A tile on an upper layer is a deck: a span on legs, because the whole
+        // point of a bridge is that there is something underneath it.
+        const deck = buildDeck(height, mat, stoneMat);
+        deck.position.set(world.x, 0, world.z);
+        this.group.add(deck);
+      } else {
         const floor = new THREE.Mesh(flat ? floorGeo : plinthGeo(height), mat);
         floor.position.set(world.x, flat ? -0.1 : height - (0.2 + height) / 2, world.z);
         floor.receiveShadow = true;
         floor.castShadow = !flat;
         this.group.add(floor);
-
-        const feature = this._buildFeature(tile, world);
-        if (feature) this.group.add(feature);
       }
+
+      const feature = this._buildFeature(tile, world);
+      if (feature) this.group.add(feature);
+
     }
   }
 
   /** How far one tile of a chute falls, in world units. */
   _chuteDrop(tile) {
     const [dx, dz] = tile.dir;
-    const next = this.get(tile.gx + dx, tile.gz + dz);
-    const below = next?.type === 'slide' ? next.level : this._groundLevel(tile.gx + dx, tile.gz + dz);
+    const next = this.get(tile.gx + dx, tile.gz + dz, tile.layer);
+    const below =
+      next?.type === 'slide'
+        ? next.level
+        : this._groundLevel(tile.gx + dx, tile.gz + dz, tile.layer);
     return (tile.level - (below ?? tile.level)) * LEVEL_RISE;
   }
 
@@ -1068,6 +1294,91 @@ function buildSlide(tile, drop, surfaceMaterial, frameMaterial) {
   group.add(support);
 
   group.rotation.y = Math.atan2(tile.dir[0], tile.dir[1]);
+  return group;
+}
+
+/**
+ * One tile of a deck: a span with legs. A bridge is the one piece of ground where
+ * what is underneath matters, so it is built as a slab held up at the corners rather
+ * than as a plinth of solid stone.
+ */
+function buildDeck(height, surfaceMaterial, legMaterial) {
+  const group = new THREE.Group();
+
+  const span = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98),
+    surfaceMaterial,
+  );
+  span.position.y = height - 0.06;
+  span.castShadow = true;
+  span.receiveShadow = true;
+  group.add(span);
+
+  // Legs down to below the floor plane, on the diagonal so a run of deck tiles
+  // reads as a trestle rather than a solid wall of posts.
+  const legHeight = height + 0.08;
+  for (const [ox, oz] of [
+    [-0.36, -0.36],
+    [0.36, 0.36],
+  ]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, legHeight, 0.1), legMaterial);
+    leg.position.set(ox, height - 0.12 - legHeight / 2, oz);
+    leg.castShadow = true;
+    group.add(leg);
+  }
+
+  return group;
+}
+
+/**
+ * The rails an elevator runs in: four corner posts spanning everything it serves, so
+ * a platform parked at the top still shows where it comes back down to.
+ */
+function buildElevatorGuides(tile, material) {
+  const group = new THREE.Group();
+  const bottom = tile.low * LEVEL_RISE;
+  const top = tile.high * LEVEL_RISE;
+  const height = top - bottom + 0.3;
+
+  for (const [ox, oz] of [
+    [-0.42, -0.42],
+    [0.42, -0.42],
+    [-0.42, 0.42],
+    [0.42, 0.42],
+  ]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, height, 0.08), material);
+    post.position.set(ox, bottom - 0.2 + height / 2, oz);
+    post.castShadow = true;
+    group.add(post);
+  }
+
+  return group;
+}
+
+/** The platform itself: a plate with a lip, so it reads as something to stand on. */
+function buildPlatform(plateMaterial, lipMaterial) {
+  const group = new THREE.Group();
+
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE_SIZE * 0.82, 0.1, TILE_SIZE * 0.82),
+    plateMaterial,
+  );
+  plate.position.y = -0.05;
+  plate.castShadow = true;
+  plate.receiveShadow = true;
+  group.add(plate);
+
+  for (const [ox, oz, sx, sz] of [
+    [0, -0.4, TILE_SIZE * 0.82, 0.06],
+    [0, 0.4, TILE_SIZE * 0.82, 0.06],
+    [-0.4, 0, 0.06, TILE_SIZE * 0.82],
+    [0.4, 0, 0.06, TILE_SIZE * 0.82],
+  ]) {
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.08, sz), lipMaterial);
+    lip.position.set(ox, -0.02, oz);
+    group.add(lip);
+  }
+
   return group;
 }
 
