@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeTree } from './dispose.js';
 
 const MOVE_DURATION = 0.14; // matches Player, so everything slides in lockstep
 
@@ -197,6 +198,16 @@ export class Enemies {
 
   reset() {
     for (const enemy of this.list) enemy.reset();
+  }
+
+  /**
+   * Throws away this stage's enemy meshes. Each enemy builds its own materials, so
+   * unloading a stage without this would leave them on the GPU.
+   */
+  dispose() {
+    disposeTree(this.group);
+    this.group.clear();
+    this.list = [];
   }
 }
 

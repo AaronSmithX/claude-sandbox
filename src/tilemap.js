@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeTree } from './dispose.js';
 
 export const TILE_SIZE = 1;
 
@@ -77,29 +78,6 @@ export const LEGEND = {
   '(': { type: 'floor', enemy: 'counterclockwise' },
 };
 
-// The level. Nine rooms on a 16x16 grid, chained so every mechanic sits on the
-// critical path: ice corridor -> gold door -> inner tube -> red switch ->
-// pink switch -> white key -> violet door -> cyan switch -> water crossing ->
-// star.
-export const DEFAULT_MAP = [
-  '################',
-  '#@...#1...#...##',
-  '#....G....X..Zw#',
-  '#..g.#.O..#...##',
-  '#.i..#x..3#..z.#',
-  '##i#############',
-  '#2i|.#....#....#',
-  '#....#~~~~.....#',
-  '#....#~~~~#-...#',
-  '#...v#....#....#',
-  '##.####Y####W###',
-  '#.iy.#)...#(...#',
-  '#.i..V....#....#',
-  '#.iii#....#..*.#',
-  '#....#....#....#',
-  '################',
-];
-
 // Column heights. Columns are 1.0 tall and centred on the group origin, and the
 // floor top is y = 0.
 const COLUMN_RAISED_Y = 0.5;
@@ -125,16 +103,19 @@ const SWITCH_DOWN_Y = 0.035;
  * Builds every tile from basic 3D shapes and owns the level's mutable state:
  * which pickups are gone, which doors are open, and which obstacle group is
  * currently raised per colour.
+ *
+ * One instance is one loaded stage. The stages themselves live in `src/levels.js`;
+ * this class knows the rules, not the content.
  */
 export class TileMap {
   /**
    * @param {string[]} map rows of legend characters; every row must be the same
-   *   length. Defaults to the shipped level, but tests pass miniature levels.
+   *   length. Production passes a stage's `rows`; tests pass miniature levels.
    * @param {{build?: boolean}} [options] `build: false` skips all mesh
    *   construction, which is how the headless tests run. Every mesh write in
    *   this class is guarded, so the rules behave identically either way.
    */
-  constructor(map = DEFAULT_MAP, { build = true } = {}) {
+  constructor(map, { build = true } = {}) {
     this.map = map;
     this.rows = map.length;
     this.cols = map[0].length;
@@ -385,9 +366,18 @@ export class TileMap {
     }
   }
 
-  /** Restores the level to its authored state, for "Play again". */
+  /** Restores the level to its authored state, for a retry. */
   reset() {
     this._resetState();
+  }
+
+  /**
+   * Throws this stage's meshes away. Called when a stage is unloaded, since the
+   * next one arrives as a whole new TileMap.
+   */
+  dispose() {
+    disposeTree(this.group);
+    this.group.clear();
   }
 
   // --- Per-frame animation --------------------------------------------------

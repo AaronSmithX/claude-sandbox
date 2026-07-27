@@ -6,9 +6,15 @@
  * up as a stall between the first tile and the rest. The player walks for as
  * long as a direction is down, and paces itself at one tile per step.
  *
- * @param {{onMute?: () => void}} [handlers]
+ * @param {object} [handlers]
+ * @param {() => void} [handlers.onMute]
+ * @param {() => void} [handlers.onRetry]
+ * @param {() => boolean} [handlers.enabled] asked before every move: false while a
+ *   panel is up, so the title screen and the stage-clear panel do not quietly let
+ *   the player walk around behind them. Mute and retry are never gated.
  */
-export function setupInput(player, { onMute } = {}) {
+export function setupInput(player, { onMute, onRetry, enabled } = {}) {
+  const canMove = () => enabled?.() ?? true;
   const moves = {
     ArrowUp: [0, -1],
     KeyW: [0, -1],
@@ -27,12 +33,22 @@ export function setupInput(player, { onMute } = {}) {
       return;
     }
 
+    // Restarting the stage you are on, for when you would rather start over than
+    // walk back — and, once a stage can be wedged, for when you have to.
+    if (e.code === 'KeyR') {
+      e.preventDefault();
+      player.releaseAll();
+      onRetry?.();
+      return;
+    }
+
     const move = moves[e.code];
     if (!move) return;
     e.preventDefault();
     // The OS repeat still arrives while a key is down; the key is already held,
     // so there is nothing to do with it.
     if (e.repeat) return;
+    if (!canMove()) return;
     player.press(move[0], move[1]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAP } from '../src/tilemap.js';
+import { DEFAULT_MAP, STAGES } from '../src/levels.js';
 import { makeGame, advance, step, walk, at } from './helpers/level.js';
 
 /**
@@ -109,6 +109,66 @@ describe('the shipped level', () => {
     step(game, 0, 1); // down to 2,7
     step(game, 0, -1); // and back
     expect(at(game)).toEqual({ gx: 2, gz: 3 });
+  });
+});
+
+describe('the opening stages', () => {
+  const stage = (id) => STAGES.find((s) => s.id === id);
+
+  /** `n` copies of one direction, for routes that run in straight lines. */
+  const times = (n, [dx, dz]) => Array.from({ length: n }, () => [dx, dz]);
+  const EAST = [1, 0];
+  const WEST = [-1, 0];
+  const SOUTH = [0, 1];
+
+  it('walks First Steps to the star', () => {
+    const game = makeGame(stage('first-steps').rows);
+    expect(
+      walk(game, [...times(6, EAST), ...times(3, SOUTH), WEST]),
+    ).toBe(true);
+    expect(game.inventory.won).toBe(true);
+  });
+
+  it('will not let Lock and Key be finished without the keys', () => {
+    const game = makeGame(stage('lock-and-key').rows);
+    // Down the only way out of the opening corridor, leaving the gold key behind.
+    walk(game, [...times(7, EAST), ...times(2, SOUTH)]);
+    expect(at(game)).toEqual({ gx: 8, gz: 3 });
+    expect(step(game, -1, 0)).toBe(false); // the gold door, and nothing to open it
+  });
+
+  it('walks Lock and Key through both doors to the star', () => {
+    const game = makeGame(stage('lock-and-key').rows);
+
+    walk(game, times(8, EAST)); // the gold key sits past the way down
+    expect(game.inventory.keyCount('gold')).toBe(1);
+
+    walk(game, [WEST, ...times(2, SOUTH), ...times(4, WEST)]);
+    expect(game.inventory.keyCount('gold')).toBe(0); // spent on the gold door
+    expect(game.inventory.keyCount('violet')).toBe(1);
+
+    walk(game, [...times(3, WEST), ...times(2, SOUTH), ...times(2, EAST)]);
+    expect(game.inventory.keyCount('violet')).toBe(0); // spent on the violet door
+
+    walk(game, times(4, EAST));
+    expect(game.inventory.won).toBe(true);
+  });
+
+  it('crosses Thin Ice in three slides', () => {
+    const game = makeGame(stage('thin-ice').rows);
+
+    walk(game, times(2, EAST));
+    step(game, 1, 0); // one press, four tiles of ice
+    expect(at(game)).toEqual({ gx: 8, gz: 1 });
+
+    walk(game, [...times(2, SOUTH), ...times(2, WEST)]);
+    step(game, -1, 0); // back west, all the way across
+    expect(at(game)).toEqual({ gx: 1, gz: 3 });
+
+    walk(game, [...times(2, SOUTH), EAST]);
+    step(game, 1, 0); // the last run carries the player onto the star
+    expect(at(game)).toEqual({ gx: 8, gz: 5 });
+    expect(game.inventory.won).toBe(true);
   });
 });
 

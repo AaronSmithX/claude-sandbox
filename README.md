@@ -3,7 +3,8 @@
 A small [Three.js](https://threejs.org/) game where you walk a little person
 around a tile map built entirely from basic 3D shapes. Collect keys, open the
 doors they match, flip switches to raise and lower columns, dodge the patrolling
-spiked shells, and find the star. Grid-based movement with an angled overhead
+spiked shells, and find the star — across a short run of stages, each one asking
+for a little more. Grid-based movement with an angled overhead
 camera, and a soundtrack synthesised from text files. Built with
 [Vite](https://vitejs.dev/) and deployed for free to GitHub Pages via GitHub
 Actions.
@@ -14,6 +15,9 @@ Actions.
 
 - **WASD** or **arrow keys** — a tap is one tile; hold a direction and you keep
   walking that way, tile after tile, with no pause between them.
+- **R** — restart the stage you are on, from the top.
+- **Enter** or **Space** — the button on whichever panel is up: start, next stage,
+  retry, play again.
 - **M**, or the speaker button in the top right — mute and unmute. The setting is
   remembered.
 - **On touch devices**, an on-screen D-pad appears at the bottom of the screen. It
@@ -28,8 +32,30 @@ to begin before the page has been interacted with.
 
 ## How to play
 
-Find the **star** to win. The HUD along the top shows what you are carrying;
-each icon lights up once you pick that item up.
+Find the **star** on each stage. The HUD along the top shows what this stage
+expects you to find, and each icon lights up once you have it; the label in the
+corner says which stage you are on.
+
+## Stages
+
+The game is a short run of stages, played in order from the title screen: three
+that each introduce one thing, then the original single level as the finale with
+everything on it at once.
+
+| Stage | What it is for |
+| --- | --- |
+| **First Steps** | Walking, and holding a direction to keep walking. |
+| **Lock and Key** | Two keys, two doors, in an order that cannot be skipped. |
+| **Thin Ice** | Three ice runs, the last of which delivers you onto the star. |
+| **The Gauntlet** | The 16x16 original: every mechanic, and patrols. |
+
+Clearing a stage pauses on a panel; the last one ends the game. Dying restarts the
+stage rather than the run, and **R** restarts it whenever you like.
+
+Stages live in `src/levels.js` as rows of legend characters — content only. Adding
+one is a data change: append a `{ id, name, hint, rows }` entry and
+`test/levels.test.js` will hold the new map to the same checks as the rest (one
+spawn, a reachable star, a key for every door, no switch that can seal you in).
 
 | Thing | What it does |
 | --- | --- |
@@ -39,11 +65,12 @@ each icon lights up once you pick that item up.
 | **Ice** | Step onto it and you keep going that way, tile after tile, until you are off the ice or something stops you. You have no say until you come to rest, so look before you step. |
 | **Switches** (red, cyan, pink) | Stepping on one *swaps* that colour's columns: every raised column of that colour drops, and every retracted one pops up. Only one switch of a colour is down at a time — pressing one lets the others back up — and a switch already down does nothing, so you cannot toggle columns on the spot by standing on the same one twice. |
 | **Columns** | Four posts that rise out of a tile. Raised ones block you; retracted ones sit just proud of the floor, so you can see where they are and walk straight over them. |
-| **Star** | Reaching it wins the level. |
-| **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one ends the run. |
+| **Star** | Reaching it clears the stage. |
+| **Enemies** | A spiked shell that patrols a fixed route on its own timer. Touching one restarts the stage. |
 
-Walls (grey) always block movement; you roam the green floor tiles. Every
-mechanic is required — the level cannot be finished while skipping any of them.
+Walls (grey) always block movement; you roam the green floor tiles. On every stage
+each mechanic it contains is required — none of them can be finished by skipping
+one.
 
 ### Ice
 
@@ -160,6 +187,11 @@ step(game, 1, 0);   // through the door it opens
   `makeGame(rows, { enemies: { interval: 1, phase: 0 } })` to give patrols a
   pacing a test can reason about.
 
+Two suites are about the game rather than a rule: `test/levels.test.js` runs the
+authoring checks over every stage in `src/levels.js`, and `test/campaign.test.js`
+drives the title → stages → win flow straight through `Campaign`, which is why that
+class knows nothing about the DOM.
+
 ## Deployment
 
 Every push to `main` (and manual "Run workflow" runs) triggers
@@ -181,9 +213,11 @@ site and publishes `dist/` to GitHub Pages.
 | File | Purpose |
 | --- | --- |
 | `index.html` | Page shell, canvas, hint, HUD, mute button, D-pad and overlay markup/styles. |
-| `src/main.js` | Renderer, scene, camera, lights, wiring, and the render loop. |
+| `src/main.js` | Renderer, scene, camera, lights, wiring, stage loading, and the render loop. |
 | `src/world.js` | One simulation step: update order and the collision check, shared with the tests. |
-| `src/tilemap.js` | The map, tile meshes, and all the level rules. |
+| `src/levels.js` | The stages: rows of legend characters, and nothing else. |
+| `src/campaign.js` | Which stage you are on and what happens next: title, playing, clear, dead, complete. |
+| `src/tilemap.js` | One loaded stage: tile meshes and all the level rules. |
 | `src/player.js` | Movement, held directions, facing and the walk cycle. |
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
 | `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
@@ -193,17 +227,19 @@ site and publishes `dist/` to GitHub Pages.
 | `src/audio/synth.js` | Web Audio voices and the lookahead scheduler. |
 | `src/audio/index.js` | Starting sound, playing effects, muting. |
 | `src/audio/scores/` | The music and sound effects, as text. |
-| `src/hud.js` | The inventory bar at the top of the screen. |
+| `src/hud.js` | The inventory bar and the stage label at the top of the screen. |
 | `src/input.js` | Keys → held grid directions, and mute. |
 | `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
 | `src/camera-follow.js` | Overhead camera that follows the player. |
+| `src/dispose.js` | Hands a stage's geometries and materials back when it is unloaded. |
 | `test/` | Vitest suite, built on miniature levels. |
 | `vite.config.js` | Pages base path, and the test runner's config. |
 
 ## Making it your own
 
-- **Redesign the level:** edit the `DEFAULT_MAP` array in `src/tilemap.js`. It's
-  a grid of characters, documented by the `LEGEND` right above it:
+- **Add or redesign a stage:** edit `src/levels.js`. Each stage is a
+  `{ id, name, hint, rows }` entry, and `rows` is a grid of characters, documented
+  by the `LEGEND` in `src/tilemap.js`:
 
   ```
   #  wall          .  floor        ~  water       @  player spawn

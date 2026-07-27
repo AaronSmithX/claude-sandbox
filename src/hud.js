@@ -4,10 +4,17 @@ import { KEY_COLORS } from './tilemap.js';
  * The inventory HUD: a glass bar pinned to the top of the screen showing the
  * keys, the inner tube and the star. Chips are dimmed until the item is held,
  * so the bar doubles as a checklist of what the level expects you to find.
+ *
+ * Which chips are on the bar depends on the stage: a stage with no water has
+ * nothing to say about the inner tube, and a dimmed chip for an item that does not
+ * exist reads as something missed rather than something absent.
+ *
+ * @returns {{setStage: (info: {tilemap: object, name: string, index: number, total: number}) => void}}
  */
 export function setupHud(inventory) {
   const root = document.getElementById('hud');
-  if (!root) return;
+  const label = document.getElementById('stage-label');
+  if (!root) return { setStage() {} };
 
   const chips = {};
 
@@ -29,6 +36,27 @@ export function setupHud(inventory) {
 
   inventory.onChange = render;
   render(inventory);
+
+  return {
+    setStage({ tilemap, name, index, total }) {
+      if (label) label.textContent = `${index + 1}/${total} — ${name}`;
+
+      // What the stage actually contains. A door counts as well as a key: the
+      // colour is worth showing the moment the stage can ask you for it.
+      const present = new Set();
+      for (const tile of tilemap.tiles.flat()) {
+        if (tile.type === 'key' || tile.type === 'door') present.add(tile.color);
+        if (tile.type === 'tube' || tile.type === 'water') present.add('tube');
+      }
+
+      for (const color of Object.keys(KEY_COLORS)) {
+        chips[color].classList.toggle('is-absent', !present.has(color));
+      }
+      chips.tube.classList.toggle('is-absent', !present.has('tube'));
+
+      render(inventory);
+    },
+  };
 }
 
 function addChip(root, label, svg) {

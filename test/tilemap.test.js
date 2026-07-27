@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { TileMap, DEFAULT_MAP } from '../src/tilemap.js';
+import { TileMap } from '../src/tilemap.js';
+import { DEFAULT_MAP } from '../src/levels.js';
 import { Inventory } from '../src/inventory.js';
 import { makeMap } from './helpers/level.js';
+import { reachableFrom, sealedIn } from './helpers/reach.js';
 
 describe('TileMap parsing', () => {
   it('rejects an unknown legend character', () => {
@@ -433,49 +435,9 @@ describe('switches that start down', () => {
 });
 
 describe('no switch can seal the player in', () => {
-  /**
-   * Tiles reachable from the spawn, treating doors and water as passable — the
-   * keys and the tube are on the critical path, so what matters here is only
-   * which columns are up. Obstacles of other colours are ignored so that one
-   * colour's puzzle cannot mask another's.
-   */
-  function reachableFrom(map, color) {
-    const start = map.findSpawn();
-    const key = (gx, gz) => `${gx},${gz}`;
-    const seen = new Set([key(start.gx, start.gz)]);
-    const queue = [[start.gx, start.gz]];
-
-    const passable = (t) => {
-      if (!t || t.type === 'wall') return false;
-      if (t.type === 'obstacle') return t.color === color ? !map.isRaised(t) : true;
-      return true;
-    };
-
-    while (queue.length) {
-      const [x, z] = queue.shift();
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const t = map.get(x + dx, z + dz);
-        if (!passable(t) || seen.has(key(t.gx, t.gz))) continue;
-        seen.add(key(t.gx, t.gz));
-        queue.push([t.gx, t.gz]);
-      }
-    }
-    return seen;
-  }
-
-  /**
-   * A switch must be reachable in *both* phases of its own colour. Checking only
-   * the phase a press leads to from a pristine level is not enough: the trap this
-   * guards against needs two presses — one to open the way in, and then the one
-   * inside, which closes it again. Since either phase can be the one you arrive
-   * at, both have to be safe.
-   */
-  function sealedIn(map, tile) {
-    return ['A', 'B'].filter((phase) => {
-      map.phase[tile.color] = phase;
-      return !reachableFrom(map, tile.color).has(`${tile.gx},${tile.gz}`);
-    });
-  }
+  // The flood fill and the two-phase check live in test/helpers/reach.js, because
+  // test/levels.test.js runs them over every stage. What is left here is the pair
+  // of cases that prove the check itself works.
 
   it('holds for every switch in the shipped level', () => {
     const map = new TileMap(DEFAULT_MAP, { build: false });

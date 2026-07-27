@@ -46,6 +46,7 @@
       #hint,
       #hud,
       #mute,
+      #stage-label,
       .overlay-panel {
         background: rgba(10, 16, 32, 0.6);
         border: 1px solid rgba(120, 150, 220, 0.25);
@@ -68,6 +69,15 @@
       }
       #hint b {
         color: #8fb4ff;
+      }
+      /* The stage's own line of guidance sits above the controls reminder. */
+      #hint-text {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+      #hint-text:empty {
+        display: none;
       }
       /* The keyboard hint sits bottom-left, which is where the D-pad lands on a
          narrow screen — tuck it under the HUD once touch mode is on. */
@@ -117,6 +127,23 @@
         color: #8792ad;
       }
 
+      /* --- Which stage you are on ----------------------------------------- */
+      #stage-label {
+        position: fixed;
+        top: calc(14px + env(safe-area-inset-top));
+        left: calc(14px + env(safe-area-inset-left));
+        padding: 9px 12px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        pointer-events: none;
+        user-select: none;
+      }
+      #stage-label:empty {
+        display: none;
+      }
+
       /* --- Inventory HUD -------------------------------------------------- */
       #hud {
         position: fixed;
@@ -146,6 +173,12 @@
       .hud-chip.is-held {
         opacity: 1;
         filter: none;
+      }
+      /* A stage with no water has nothing to say about the inner tube: leave the
+         chip out entirely rather than dimming it, which would read as an item
+         missed rather than one that does not exist here. */
+      .hud-chip.is-absent {
+        display: none;
       }
       .hud-chip svg {
         width: 22px;
@@ -294,6 +327,8 @@
   <body>
     <div id="app"></div>
 
+    <div id="stage-label" aria-live="polite"></div>
+
     <div id="hud" aria-label="Inventory"></div>
 
     <button id="mute" type="button" aria-label="Mute sound" aria-pressed="false">
@@ -309,8 +344,10 @@
     </button>
 
     <div id="hint">
+      <span id="hint-text"></span>
       <span class="keyboard-hint">
         Move with <b>WASD</b> or <b>arrow keys</b> — tap for one tile, hold to walk.
+        <b>R</b> restarts the stage.
       </span>
       <span class="touch-hint">Tap or hold the <b>arrows</b> to move.</span>
     </div>
@@ -352,10 +389,29 @@
         </svg>
       </button>
     </div>
+    <div id="title" class="overlay">
+      <div class="overlay-panel">
+        <h1>Tile Runner</h1>
+        <p>
+          Find the star on every stage. Keys open doors of their own colour, ice
+          carries you, and the spiked shells do not stop for anyone.
+        </p>
+        <button id="start" type="button">Start</button>
+      </div>
+    </div>
+
+    <div id="stage-clear" class="overlay">
+      <div class="overlay-panel">
+        <h1>Stage clear</h1>
+        <p id="stage-clear-name"></p>
+        <button id="next-stage" type="button">Next stage</button>
+      </div>
+    </div>
+
     <div id="win" class="overlay">
       <div class="overlay-panel">
-        <h1>You found the star!</h1>
-        <p>Keys turned, columns dropped, water crossed. Level complete.</p>
+        <h1>You win!</h1>
+        <p>Every stage cleared, every star found. That was the whole game.</p>
         <button id="play-again" type="button">Play again</button>
       </div>
     </div>
@@ -363,8 +419,8 @@
     <div id="gameover" class="overlay">
       <div class="overlay-panel">
         <h1>Game over</h1>
-        <p>One of the spiked shells got you. The level resets from the start.</p>
-        <button id="try-again" type="button">Try again</button>
+        <p>One of the spiked shells got you. The stage restarts from the top.</p>
+        <button id="try-again" type="button">Retry stage</button>
       </div>
     </div>
 

@@ -17,9 +17,15 @@ const MOVES = {
   right: [1, 0],
 };
 
-export function setupTouchControls(player) {
+/**
+ * @param {{enabled?: () => boolean}} [options] `enabled` is asked before every
+ *   move, so the pad is inert while a panel is up — matching the keyboard.
+ */
+export function setupTouchControls(player, { enabled } = {}) {
   const root = document.getElementById('touch-controls');
   if (!root) return;
+
+  const canMove = () => enabled?.() ?? true;
 
   function releaseAll() {
     player.releaseAll();
@@ -42,6 +48,7 @@ export function setupTouchControls(player) {
     // Keeps the touch from also scrolling, zooming, or synthesising a click.
     event.preventDefault();
     enableTouchMode();
+    if (!canMove()) return;
 
     btn.classList.add('is-pressed');
     player.press(move[0], move[1]);

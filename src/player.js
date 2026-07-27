@@ -29,7 +29,8 @@ export class Player {
     this.tilemap = tilemap;
     this.inventory = inventory;
 
-    // Fired the first time a move actually starts, so the UI can drop the hint.
+    // Fired the first time a move starts on the loaded stage, so the UI can drop
+    // the hint. Reset with the player, so each stage's hint gets its own chance.
     this.onFirstMove = null;
     // Fired with ({gx,gz} from, {gx,gz} to) once a move is committed. A slide's
     // own tiles do not fire it — one event per deliberate step.
@@ -111,6 +112,16 @@ export class Player {
     this.mesh.position.set(p.x, this._restY(this.gx, this.gz), p.z);
   }
 
+  /**
+   * Moves the player onto another stage's map. One Player lives for the whole run
+   * — the camera follows its mesh and the input is bound to it, so replacing the
+   * instance between stages would strand both — and this is how it changes level.
+   */
+  setTilemap(tilemap) {
+    this.tilemap = tilemap;
+    this.reset();
+  }
+
   /** Returns the player to the spawn tile with nothing carried. */
   reset() {
     const spawn = this.tilemap.findSpawn();
@@ -122,6 +133,7 @@ export class Player {
     this._t = 0;
     this._hopScale = 1;
     this._sliding = false;
+    this._hasMoved = false;
     this._held.length = 0;
     this._direction = [0, 1];
     this._facing = 0;
