@@ -238,17 +238,27 @@ A note is `pitch/duration`:
 | Token | Meaning |
 | --- | --- |
 | `c` `f#` `eb5` | a note — letter, optional `#`/`b`, optional octave |
+| `[c e g]/2` | a chord: those notes struck together, for one note's worth of time |
 | `-` | a rest |
-| `~` | a tie: lengthens the note before it |
+| `~` | a tie: lengthens the note before it — every voice of a chord, not just one |
 | `x` | a percussion hit, on a `noise` track |
 | `/4` `/8.` | note value — 1, 2, 4, 8, 16 or 32, with `.` to dot it |
 | *no duration* | reuse the previous one |
 | `\|` | a bar line, ignored — it is there so you can read the file |
-| `#` | starts a comment |
+| `#` | starts a comment, on its own or after a space — `c#5` is a note |
+
+A track plays one note at a time, so a chord needs the brackets; without them
+`c/2 e/2 g/2` is an arpeggio that takes three times as long.
 
 Tracks in a score play together and loop together, so give each the same number
-of bars. `src/audio/score.js` documents the format in full, and the test suite
-checks that every shipped score parses and that the looping ones line up.
+of bars. `src/audio/score.js` documents the format in full.
+`src/audio/score-checks.js` is what holds a score to it — a seamless loop, bar
+lines that add up, gains that leave the master some headroom, nothing shrill —
+and both the test suite and the music editor run it, so a score the editor is
+happy with is one CI will be happy with.
+
+Bar lines are decoration to the parser: it never counts them, which is exactly
+why the check that counts them exists.
 
 ## Local development
 
@@ -281,6 +291,27 @@ the level itself is on the right, rebuilt a quarter of a second after you stop t
 - **Copy stage** puts the whole `const` on the clipboard, quoted and indented the way
   `src/levels.js` already is; paste it in and add it to `STAGES`. The draft in the
   boxes survives a reload, and the dropdown opens any shipped stage to start from.
+
+### The music editor
+
+A third page, at http://localhost:5173/claude-sandbox/audio-editor.html. The score is
+on the left and a piano roll of it is on the right, redrawn a quarter of a second
+after you stop typing.
+
+- **Play** starts it; space does the same, unless the caret is in a box. An edit while
+  it is playing does not send it back to the top — the new notes are taken up from
+  where the old ones had got to, so a change is heard as the music carrying on.
+- **The roll** puts time across and pitch up, with every track sharing one pitch axis
+  so you can see harmony line up between them. Noise tracks get a strip along the
+  bottom. Clicking a note puts the caret on it in the text.
+- **M and S** on each track mute and solo it. Nothing restarts: the synth only queues
+  about a sixth of a second ahead, so it takes effect within a beat.
+- **The panel** is the parser first — it names the line it gave up on — and
+  `src/audio/score-checks.js` underneath.
+- **Save** writes the file, if `npm run dev` is what is serving the page: the dev
+  server carries a small endpoint for it, the built site does not, and there the button
+  falls back to the clipboard. The dropdown opens any shipped score to start from, and
+  the draft survives a reload.
 
 To produce a production build in `dist/`:
 
@@ -388,6 +419,12 @@ site and publishes `dist/` to GitHub Pages.
 | `src/audio/synth.js` | Web Audio voices and the lookahead scheduler. |
 | `src/audio/index.js` | Starting sound, playing effects, muting. |
 | `src/audio/scores/` | The music and sound effects, as text. |
+| `src/audio/score-checks.js` | The checks a score has to pass, as data — run by the suite over every score and by the music editor over a draft. |
+| `audio-editor.html` | The music editor's page: the score on the left, a piano roll on the right. |
+| `src/audio-editor/draft.js` | Parsing for an editor: a complaint rather than a throw, and the score a first visit opens with. |
+| `src/audio-editor/roll.js` | The piano roll: `layout` is arithmetic and is tested, `paint` draws it. |
+| `src/audio-editor/transport.js` | Play, stop, mute and solo, and taking up a changed score where the old one was. |
+| `src/audio-editor/main.js` | The music editor's wiring: textarea, debounce, problems panel, save. |
 | `src/hud.js` | The inventory bar and the stage label at the top of the screen. |
 | `src/input.js` | Keys → held grid directions, plus mute, retry and leaving the stage. Asks for the player each time, because between stages there isn't one. |
 | `src/touch-controls.js` | On-screen D-pad for touch devices, pressed and released the same way. |
@@ -476,7 +513,8 @@ site and publishes `dist/` to GitHub Pages.
   drive both the 3D meshes and the HUD icons.
 - **Rebuild the player:** the body is assembled in `src/player-rig.js`; the walk
   cycle and turning live in `src/player.js`.
-- **Rewrite the music:** edit `src/audio/scores/theme.txt`. See
+- **Rewrite the music:** edit `src/audio/scores/theme.txt`, or open the [music
+  editor](#the-music-editor) and hear it as you go. See
   [Music and sound](#music-and-sound).
 - **Retune the patrols:** `INTERVALS` and `PHASES` in `src/enemy.js` set how
   often each enemy steps and where in its cycle it starts.

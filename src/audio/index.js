@@ -7,6 +7,9 @@ import { Synth } from './synth.js';
 // that editing a score needs a rebuild, which `npm run dev` does for you.
 import themeSource from './scores/theme.txt?raw';
 import ambienceSource from './scores/ambience.txt?raw';
+import brightSource from './scores/bright.txt?raw';
+import tensionSource from './scores/tension.txt?raw';
+import marchSource from './scores/march.txt?raw';
 import footstepSource from './scores/footstep.txt?raw';
 import slideSource from './scores/slide.txt?raw';
 import pickupSource from './scores/pickup.txt?raw';
@@ -20,6 +23,13 @@ import winSource from './scores/win.txt?raw';
 export const SCORE_SOURCES = {
   theme: themeSource,
   ambience: ambienceSource,
+  // Three more pieces, held to the same checks as everything else but not yet given a
+  // stage to play under — `MUSIC` below is still the theme and its room tone. Putting
+  // one on is a matter of naming it there; they are here so the suite and the editor
+  // can see them, rather than rotting unreferenced the way their sketches did.
+  bright: brightSource,
+  tension: tensionSource,
+  march: marchSource,
   footstep: footstepSource,
   slide: slideSource,
   pickup: pickupSource,

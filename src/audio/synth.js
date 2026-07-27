@@ -98,14 +98,32 @@ export class Synth {
 
   /**
    * Starts a looping score on the music bus.
-   * @returns {{stop: () => void}}
+   *
+   * @param {import('./score.js').Score} score
+   * @param {object} [options]
+   * @param {(trackName: string) => boolean} [options.isMuted] asked before each note is
+   *   queued rather than once at the start, so a track can be dropped and brought back
+   *   while the score plays. Nothing is queued more than `LOOKAHEAD` ahead, which is
+   *   what lets this work without a gain node per track: the change is audible within
+   *   about a sixth of a second and needs no restart.
+   * @param {GainNode|null} [options.bus] where to play it, defaulting to the music bus.
+   * @param {number} [options.at] seconds into the score to take up from. The music
+   *   editor uses it to carry on from where it was when you changed a note, rather
+   *   than snapping back to the top on every keystroke.
+   * @returns {{stop: () => void, position: () => number}} `position` is seconds since
+   *   the score began, wrapped into its length — where a playhead goes.
    */
-  play(score) {
+  play(score, { isMuted, bus, at = 0 } = {}) {
     const ctx = this.ctx;
-    if (!ctx) return { stop() {} };
+    if (!ctx) return { stop() {}, position: () => 0 };
 
+    const target = bus ?? this.musicBus;
     const cursors = score.tracks.map(() => 0);
-    let origin = ctx.currentTime + 0.1;
+    // Where note time 0 sits on the clock. Taking up part-way through puts it in the
+    // past, and the notes already gone by are dropped by `_schedule` as too late to be
+    // heard — their cursors still advance, so the queue catches up on the first pump.
+    const begin = ctx.currentTime + 0.1 - at;
+    let origin = begin;
 
     const pump = () => {
       const until = ctx.currentTime + LOOKAHEAD;
@@ -117,7 +135,9 @@ export class Synth {
           while (cursors[i] < track.notes.length) {
             const note = track.notes[cursors[i]];
             if (origin + note.time >= until) break;
-            this._schedule(track, note, origin + note.time, this.musicBus);
+            if (!isMuted?.(track.name)) {
+              this._schedule(track, note, origin + note.time, target);
+            }
             cursors[i]++;
           }
         });
@@ -131,14 +151,25 @@ export class Synth {
 
     pump();
     const timer = setInterval(pump, PUMP_MS);
-    return { stop: () => clearInterval(timer) };
+    return {
+      stop: () => clearInterval(timer),
+      // From `begin`, not from `origin` — `origin` walks forward a loop at a time as
+      // the queue is filled, and is already ahead of what is being heard.
+      position: () => {
+        const elapsed = Math.max(0, ctx.currentTime - begin);
+        if (!(score.duration > 0)) return elapsed;
+        // A one-shot runs out rather than coming round, so its playhead stops at the
+        // end instead of wrapping to somewhere nothing is playing.
+        return score.loop ? elapsed % score.duration : Math.min(elapsed, score.duration);
+      },
+    };
   }
 
   /** One note: a source through its own envelope, into the given bus. */
   _schedule(track, note, at, bus) {
     const ctx = this.ctx;
     if (!ctx || !bus) return;
-    if (note.freq === null && track.voice !== 'noise') return; // a rest
+    if (note.freq === null && !note.hit) return; // a rest
     if (at < ctx.currentTime) return; // too late to be heard
 
     const [attack, decay, sustain, release] = track.env;

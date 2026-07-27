@@ -1,0 +1,88 @@
+# March — the disciplined one. D minor, eight bars.
+#
+# The bones are the sketch's and they were the best of the five: Dm - C - Bb - A is
+# the Andalusian cadence, a real progression that has been carrying music around for
+# four hundred years. What it needed was arithmetic — no two of its tracks were the
+# same length — and the flat spelled as a flat, since Bb is a degree of D minor and
+# A# is not.
+#
+# The two halves share their harmony and differ in what plays over it: the brass sits
+# out bar 5 entirely, so the second time round is not simply the first time again.
+
+tempo 116
+loop on
+
+# Dm  C  Bb  A. The A is major — the one accidental in the piece, and the reason the
+# cadence pulls back to D rather than drifting.
+track pad
+  voice sine
+  gain 0.09
+  octave 4
+  env 0.1 0.25 0.7 0.3
+  | [d f a]/1     |
+  | [c e g]/1     |
+  | [bb d5 f5]/1  |
+  | [a c#5 e5]/1  |
+  | [d f a]/1     |
+  | [c e g]/1     |
+  | [bb d5 f5]/1  |
+  | [a c#5 e5]/1  |
+
+# The boots: root on one, fifth on three, and nothing in between. The last bar breaks
+# step to mark the turn.
+track tuba
+  voice triangle
+  gain 0.26
+  octave 2
+  env 0.001 0.06 0.5 0.06
+  | d/8  -/8 -/4 a/8 -/8 -/4 |
+  | c/8  -/8 -/4 g/8 -/8 -/4 |
+  | bb/8 -/8 -/4 f/8 -/8 -/4 |
+  | a/8  -/8 -/4 e/8 -/8 -/4 |
+  | d/8  -/8 -/4 a/8 -/8 -/4 |
+  | c/8  -/8 -/4 g/8 -/8 -/4 |
+  | bb/8 -/8 -/4 f/8 -/8 -/4 |
+  | a/8  -/8 a/8 -/8 a/4 -/4 |
+
+# Bold and clipped, and quiet for a bar when the second half starts.
+track brass
+  voice square
+  gain 0.17
+  octave 5
+  env 0.001 0.06 0.4 0.08
+  | d/8  -/8 f/8  a/8 d6/4  -/4 |
+  | c6/8 -/8 g/8  e/8 c6/4  -/4 |
+  | bb/8 -/8 d6/8 f/8 bb/4  -/4 |
+  | a/4  -/8 e/8  a/4  -/4      |
+  | -/1                         |
+  | -/4  e/8 g/8  c6/4 -/4      |
+  | -/4  f/8 bb/8 d6/4 -/4      |
+  | a/4  c#6/8 e6/8 a/4 -/4     |
+
+track kick
+  voice noise
+  gain 0.09
+  env 0.001 0.03 0.0 0.04
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/4 -/4         |
+  | x/4 -/4 x/8 x/8 x/8 x/8 |
+
+# A two-bar pattern rather than a one-bar one — the second bar answers with a double
+# that the first does not have. The last bar is the fill back to the top.
+track snare
+  voice noise
+  gain 0.06
+  env 0.001 0.02 0.0 0.03
+  | -/4 x/8 x/8 -/4 x/8 x/8                 |
+  | -/4 x/8 x/8 -/4 x/16 x/16 x/16 x/16     |
+  | -/4 x/8 x/8 -/4 x/8 x/8                 |
+  | -/4 x/8 x/8 -/4 x/16 x/16 x/16 x/16     |
+  | -/4 x/8 x/8 -/4 x/8 x/8                 |
+  | -/4 x/8 x/8 -/4 x/16 x/16 x/16 x/16     |
+  | -/4 x/8 x/8 -/4 x/8 x/8                 |
+  | x/16 x/16 x/16 x/16 x/8 x/8 x/8 x/8 x/8 x/8 |

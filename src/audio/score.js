@@ -24,8 +24,12 @@
  *   duration  1, 2, 4, 8, 16 or 32 (whole to thirty-second), optionally
  *             followed by `.` to dot it (half again as long). Leave the duration
  *             off entirely and the previous one is reused.
+ *   `[...]`   a chord: `[c e g]/2` is three notes struck together, for the length
+ *             of a half note. A track is otherwise one note at a time, so without
+ *             this a triad costs three tracks.
  *   `|`       a bar line. Ignored — it is there so you can read the file.
- *   `#`       starts a comment, anywhere on a line.
+ *   `#`       starts a comment, on its own or after a space. `c#5` is a note, not a
+ *             `c` followed by a comment.
  */
 
 const VOICES = new Set(['sine', 'square', 'triangle', 'saw', 'noise']);
@@ -35,11 +39,36 @@ const SEMITONES = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const DEFAULT_ENVELOPE = [0.01, 0.08, 0.5, 0.15];
 
 /**
- * @typedef {{time: number, dur: number, freq: number|null}} Note
- *   `time` and `dur` are in seconds; `freq` is null for a rest.
+ * @typedef {{time: number, dur: number, freq: number|null, hit: boolean, line: number, col: number}} Note
+ *   `time` and `dur` are in seconds. `freq` is null for a rest — and also for a hit on
+ *   a noise track, which has no pitch to give, so `hit` is what tells the two apart.
+ *   Without it a drum track's rests are silent gaps that nothing can distinguish from
+ *   its beats, and the pattern plays as an unbroken run.
+ *   `line` (from 1) and `col` (from 0) are where the note was written, which is what
+ *   lets the music editor's piano roll put the caret on the note you clicked.
  * @typedef {{name: string, voice: string, gain: number, env: number[], octave?: number, notes: Note[]}} Track
  * @typedef {{tempo: number, loop: boolean, tracks: Track[], duration: number}} Score
  */
+
+/**
+ * Splits a line of notes into tokens, each with the column it started at. A plain
+ * whitespace split cannot do this on its own: `[c e g]/2` is one token with spaces
+ * inside it. Anything that is not a bracket group falls through to a run of non-space,
+ * so an unclosed `[` still arrives as a token and can be complained about by name.
+ *
+ * The column is what lets a caller point back at the text — the music editor puts the
+ * caret on the note you clicked in its piano roll.
+ *
+ * @param {string} line comment already stripped, but *not* trimmed: leading space has
+ *   to survive or every column after it would be wrong.
+ * @returns {{text: string, col: number}[]}
+ */
+function tokenise(line) {
+  return [...line.matchAll(/\[[^\]]*\](?:\/\d+\.?)?|\S+/g)].map((m) => ({
+    text: m[0],
+    col: m.index,
+  }));
+}
 
 /** Equal temperament, with a4 at 440Hz. */
 export function noteToFreq(letter, accidental, octave) {
@@ -66,11 +95,18 @@ export function parseScore(text) {
   let track = null;
   let beat = 0; // where the current track has got to, in quarter notes
   let lastDuration = 4;
+  // Where the notes struck together most recently begin, so a tie can lengthen all of
+  // a chord rather than whichever voice of it happened to be written last.
+  let groupStart = -1;
 
   const lines = text.split('\n');
 
   lines.forEach((raw, index) => {
-    const line = raw.replace(/#.*$/, '').trim();
+    // A `#` only opens a comment where a token could start. It is also the sharp sign,
+    // and stripping from the first `#` anywhere turned `f#/4` into `f` — silently, with
+    // the rest of the line going with it.
+    const uncommented = raw.replace(/(^|\s)#.*$/, '');
+    const line = uncommented.trim();
     if (!line) return;
 
     /**
@@ -112,6 +148,7 @@ export function parseScore(text) {
         tracks.push(track);
         beat = 0;
         lastDuration = 4;
+        groupStart = -1;
         return;
       }
 
@@ -153,13 +190,19 @@ export function parseScore(text) {
       default: {
         if (!track) fail(`expected a directive or a track, got "${word}"`);
 
-        for (const token of line.split(/\s+/)) {
+        // `uncommented` rather than `line`: trimming would shift every column.
+        for (const { text: token, col } of tokenise(uncommented)) {
           if (token === '|') continue; // bar line, for the reader's benefit only
 
-          const match = token.match(/^([a-g][#b]?-?\d*|[-~x])(?:\/(\d+)(\.?))?$/);
+          const chord = token.startsWith('[');
+          if (chord && !token.includes(']')) fail(`"${token}" is missing its closing "]"`);
+
+          const match = chord
+            ? token.match(/^\[([^\]]*)\](?:\/(\d+)(\.?))?$/)
+            : token.match(/^([a-g][#b]?-?\d*|[-~x])(?:\/(\d+)(\.?))?$/);
           if (!match) fail(`cannot read "${token}"`);
 
-          const [, pitch, rawDuration, dotted] = match;
+          const [, body, rawDuration, dotted] = match;
 
           let duration = lastDuration;
           if (rawDuration !== undefined) {
@@ -172,30 +215,48 @@ export function parseScore(text) {
           // A quarter note is one beat, so a note of value n lasts 4/n beats.
           const beats = (4 / duration) * (dotted ? 1.5 : 1);
 
-          if (pitch === '~') {
-            const previous = track.notes[track.notes.length - 1];
-            if (!previous) fail('a tie needs a note before it');
-            previous.dur += beats;
+          if (body === '~') {
+            if (groupStart < 0) fail('a tie needs a note before it');
+            // Every voice of the last chord, not just the last of them. `groupStart`
+            // deliberately stays put, so `c/4 ~/4 ~/4` is one note three beats long.
+            for (let i = groupStart; i < track.notes.length; i++) {
+              track.notes[i].dur += beats;
+            }
             beat += beats;
             continue;
           }
 
-          /** @type {?number} */
-          let freq = null;
-          if (pitch === 'x') {
-            if (track.voice !== 'noise') fail('"x" is a noise hit; set "voice noise"');
-          } else if (pitch !== '-') {
-            const parts = pitch.match(/^([a-g])([#b]?)(-?\d*)$/);
-            if (!parts) fail(`cannot read the pitch "${pitch}"`);
-            const [, letter, accidental, octave] = parts;
-            freq = noteToFreq(
-              letter,
-              accidental,
-              octave === '' ? (track.octave ?? 4) : Number(octave),
-            );
+          const pitches = chord ? body.trim().split(/\s+/).filter(Boolean) : [body];
+          if (pitches.length === 0) fail(`"${token}" is an empty chord`);
+
+          groupStart = track.notes.length;
+
+          for (const pitch of pitches) {
+            if (chord && (pitch === '-' || pitch === '~' || pitch === 'x')) {
+              fail(`"${pitch}" cannot go inside a chord; a chord is notes struck together`);
+            }
+
+            /** @type {?number} */
+            let freq = null;
+            let hit = false;
+            if (pitch === 'x') {
+              if (track.voice !== 'noise') fail('"x" is a noise hit; set "voice noise"');
+              hit = true;
+            } else if (pitch !== '-') {
+              const parts = pitch.match(/^([a-g])([#b]?)(-?\d*)$/);
+              if (!parts) fail(`cannot read the pitch "${pitch}"`);
+              const [, letter, accidental, octave] = parts;
+              freq = noteToFreq(
+                letter,
+                accidental,
+                octave === '' ? (track.octave ?? 4) : Number(octave),
+              );
+            }
+
+            track.notes.push({ time: beat, dur: beats, freq, hit, line: index + 1, col });
           }
 
-          track.notes.push({ time: beat, dur: beats, freq });
+          // Once per group, not once per note: a chord takes up the time of one note.
           beat += beats;
         }
       }

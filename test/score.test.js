@@ -65,6 +65,15 @@ describe('parseScore', () => {
     expect(after.time).toBeCloseTo(0.5);
   });
 
+  it('tells a noise hit from a rest, which share having no pitch', () => {
+    // The synth decides what to sound from this. While both arrived as a bare null,
+    // a drum track's rests were played as beats and every pattern came out straight.
+    const [rest, hit] = parseScore('track t\n  voice noise\n  -/8 x/8').tracks[0].notes;
+    expect(rest.hit).toBe(false);
+    expect(hit.hit).toBe(true);
+    expect(hit.freq).toBeNull();
+  });
+
   it('lengthens the previous note with a tie, without adding another', () => {
     const notes = notesOf('c/4 ~/4 d/4');
     expect(notes).toHaveLength(2);
@@ -79,9 +88,60 @@ describe('parseScore', () => {
     expect(low.freq).toBeCloseTo(440);
   });
 
+  it('strikes the notes of a chord together', () => {
+    const notes = notesOf('[c e g]/2');
+    expect(notes).toHaveLength(3);
+    expect(notes.map((n) => n.time)).toEqual([0, 0, 0]);
+    expect(notes.map((n) => n.dur)).toEqual([1, 1, 1]);
+    expect(notes.map((n) => n.freq)).toEqual([
+      noteToFreq('c', '', 4),
+      noteToFreq('e', '', 4),
+      noteToFreq('g', '', 4),
+    ]);
+  });
+
+  it('gives a chord the time of one note, not one per voice', () => {
+    const [, , , after] = notesOf('[c e g]/4 d/4');
+    expect(after.time).toBeCloseTo(0.5);
+  });
+
+  it('lets a voice of a chord name its own octave', () => {
+    const [low, high] = notesOf('[c c5]/4'); // the track's own octave is 4
+    expect(high.freq).toBeCloseTo(low.freq * 2);
+  });
+
+  it('reuses the last duration for a chord written without one', () => {
+    const [, chord] = notesOf('c/8 [c e]');
+    expect(chord.dur).toBeCloseTo(0.25);
+  });
+
+  it('lengthens every voice of a chord with a tie', () => {
+    const notes = notesOf('[c e g]/4 ~/4');
+    expect(notes).toHaveLength(3);
+    for (const note of notes) expect(note.dur).toBeCloseTo(1);
+  });
+
+  it('keeps tying to the same chord, so two ties make one long note', () => {
+    const notes = notesOf('c/4 ~/4 ~/4');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].dur).toBeCloseTo(1.5);
+  });
+
   it('ignores bar lines and comments', () => {
     const notes = notesOf('| c/4 | # a trailing comment\n  d/4');
     expect(notes).toHaveLength(2);
+  });
+
+  it('reads a sharp as a sharp, not as the start of a comment', () => {
+    // `#` is both the sharp sign and the comment marker. Stripping from the first one
+    // anywhere on the line left `f` behind and swallowed everything after it.
+    const notes = notesOf('f#/4 g/4');
+    expect(notes).toHaveLength(2);
+    expect(notes[0].freq).toBeCloseTo(noteToFreq('f', '#', 4));
+  });
+
+  it('still takes a comment after a note', () => {
+    expect(notesOf('c#5/4 # and a word about it')).toHaveLength(1);
   });
 
   it('keeps tracks separate, each starting at zero', () => {
@@ -130,27 +190,33 @@ describe('parseScore errors', () => {
   it('rejects a score with no tracks', () => {
     expect(() => parseScore('tempo 120\nloop on')).toThrow(/no tracks/);
   });
+
+  it('rejects a chord that is never closed', () => {
+    expect(() => parseScore('track t\n  [c e g/2')).toThrow(/closing/);
+  });
+
+  it('rejects an empty chord', () => {
+    expect(() => parseScore('track t\n  []/2')).toThrow(/empty chord/);
+  });
+
+  it.each(['-', '~', 'x'])('rejects "%s" inside a chord', (pitch) => {
+    expect(() => parseScore(`track t\n  [c ${pitch} g]/2`)).toThrow(/inside a chord/);
+  });
+
+  it('names the line of a bad pitch inside a chord', () => {
+    expect(() => parseScore('tempo 120\ntrack t\n  c/4\n  [c q g]/2')).toThrow(at(4));
+  });
 });
 
 describe('the scores that ship with the game', () => {
+  // Anything beyond parsing — seamless loops, gains, register — is `checkScore`, and
+  // is swept over the same scores in test/score-checks.test.js.
   it.each(Object.keys(SCORE_SOURCES))('%s parses and has something in it', (name) => {
     const parsed = parseScore(SCORE_SOURCES[name]);
     expect(parsed.duration).toBeGreaterThan(0);
     expect(parsed.tracks.length).toBeGreaterThan(0);
     for (const track of parsed.tracks) {
       expect(track.notes.length).toBeGreaterThan(0);
-      expect(track.gain).toBeLessThanOrEqual(0.3); // nothing should be shouting
-    }
-  });
-
-  it('gives every track in the looping scores the same length, so the loop is seamless', () => {
-    for (const name of ['theme', 'ambience']) {
-      const parsed = parseScore(SCORE_SOURCES[name]);
-      expect(parsed.loop).toBe(true);
-      for (const track of parsed.tracks) {
-        const end = track.notes.at(-1).time + track.notes.at(-1).dur;
-        expect(end).toBeCloseTo(parsed.duration, 5);
-      }
     }
   });
 });
