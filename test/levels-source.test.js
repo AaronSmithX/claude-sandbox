@@ -305,19 +305,25 @@ describe('the real src/levels.js', () => {
 
   it('re-quotes and re-indents, but only the stage it was asked to save', () => {
     // Some shipped stages are hand-formatted — `FIRST_STEPS` double-quotes rows that
-    // need no quoting, and every `upper` in the file is packed onto one long line. Save
-    // normalises whichever stage it lands on to `serializeStage`'s layout, which is
-    // worth knowing about because it shows up in the diff. What it must never do is
-    // normalise one it was not given.
+    // need no quoting, and some pack an `upper` grid onto one long line. Save normalises
+    // whichever stage it lands on to `serializeStage`'s layout, which is worth knowing
+    // about because it shows up in the diff. What it must never do is normalise one it
+    // was not given. Which stages are hand-formatted changes as levels are edited, so
+    // this finds them rather than naming one; if the file ever holds none, the miniature
+    // file above is what still covers re-quoting.
     const before = declarations(source);
-    const { text } = writeStage(source, valueOf(before.OVER_AND_UNDER));
-    const after = declarations(text);
+    const canonical = (/** @type {string} */ name) =>
+      `const ${name} = ${serializeStage(valueOf(before[name]))};`;
 
-    expect(after.OVER_AND_UNDER).not.toBe(before.OVER_AND_UNDER);
-    expect(after.OVER_AND_UNDER).toBe(
-      `const OVER_AND_UNDER = ${serializeStage(valueOf(before.OVER_AND_UNDER))};`,
-    );
-    expect(after.FIRST_STEPS).toBe(before.FIRST_STEPS);
+    for (const target of Object.keys(before).filter((name) => before[name] !== canonical(name))) {
+      const after = declarations(writeStage(source, valueOf(before[target])).text);
+
+      expect(after[target], `${target} was not normalised`).toBe(canonical(target));
+      for (const other of Object.keys(before)) {
+        if (other !== target)
+          expect(after[other], `saving ${target} reformatted ${other}`).toBe(before[other]);
+      }
+    }
   });
 
   it('takes a new stage without disturbing a line of what is there', () => {
