@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STAGES } from '../src/levels.js';
+import { FIXTURES } from './helpers/stages.js';
 import {
   parseDraft,
   formatDraft,
@@ -92,9 +92,12 @@ describe('parsing a legend', () => {
 });
 
 describe('round-tripping', () => {
-  for (const stage of STAGES) {
-    it(`survives ${stage.name} going out to text and back`, () => {
-      expect(parseDraft(formatDraft(stage)).stage).toEqual(stage);
+  // Real maps rather than four-character ones, since what breaks a round trip is the
+  // awkward character in the middle of a real row: an apostrophe, a chute's backslash,
+  // a run of spaces on an upper layer that has to survive being trimmed.
+  for (const fixture of FIXTURES) {
+    it(`survives ${fixture.name} going out to text and back`, () => {
+      expect(parseDraft(formatDraft(fixture)).stage).toEqual(fixture);
     });
   }
 
@@ -112,8 +115,8 @@ describe('round-tripping', () => {
 
 describe('serializing a stage', () => {
   it('reads back as the stage it came from', () => {
-    for (const stage of STAGES) {
-      expect(eval(`(${serializeStage(stage)})`)).toEqual(stage);
+    for (const fixture of FIXTURES) {
+      expect(eval(`(${serializeStage(fixture)})`)).toEqual(fixture);
     }
   });
 
@@ -164,6 +167,26 @@ describe('the checks the editor shows', () => {
         problems: ['the star at 1,3 is walled off from the spawn'],
       },
     ]);
+  });
+
+  it('reports a tile hidden under another one at the same height', () => {
+    // The star is drawn on the deck, over ground already at the deck's height. Both
+    // are level 1, so a step lands on the floor and the star is never touched — the
+    // map reads perfectly and the stage cannot be finished.
+    const stacked = {
+      id: 'x',
+      name: 'X',
+      hint: 'H',
+      rows: ['#####', "#@/'#", '#####'],
+      upper: [['     ', '   * ', '     ']],
+    };
+    const problems = checkStage(stacked)
+      .filter((c) => c.problems.length > 0)
+      .flatMap((c) => c.problems);
+    expect(problems).toContain(
+      'the cell at 3,1 holds a floor and a star at the same height — ' +
+        'a step can only land on one of them',
+    );
   });
 
   it('reports a gate with no plate to hold it', () => {

@@ -631,11 +631,16 @@ export class TileMap {
   /**
    * One tile. `layer` 0 is the ground, 1 the deck above it, and so on — so the
    * no-argument form still means what it always did.
+   *
+   * A column is packed rather than sparse: a cell with a hole in the ground and a
+   * deck over it holds one tile, and that tile is on layer 1. So the layer has to be
+   * asked for, not counted to — indexing by position finds nothing there, which is
+   * how a star on a bridge over a hole used to be walked onto and never picked up.
    */
   get(gx, gz, layer = 0) {
     if (gz < 0 || gz >= this.rows || gx < 0 || gx >= this.cols) return null;
     if (layer === 0) return this.tiles[gz][gx];
-    return this.columns[gz][gx][layer] ?? null;
+    return this.columns[gz][gx].find((t) => t.layer === layer) ?? null;
   }
 
   /**
@@ -1523,10 +1528,10 @@ export class TileMap {
       }
 
       case 'star': {
-        const art = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.32),
-          this._litMaterial(0xffe066, 0.7),
-        );
+        // Left upright and untilted: a star leaning over is a star that has fallen
+        // off something. The spinner turns it about the vertical, so it stands the
+        // way it is drawn and turns on the spot.
+        const art = buildStar(this._litMaterial(0xffe066, 0.7));
         art.castShadow = true;
         return this._pickup(tile, art, world, 0.6);
       }
@@ -1828,6 +1833,49 @@ function buildKey(material) {
   }
 
   return group;
+}
+
+/**
+ * The star: five points, standing upright in the vertical plane.
+ *
+ * Built by hand rather than out of a stock solid, because the stock solids are all
+ * blobs — an octahedron is a gem, not a star. The outline is the ten-point rim every
+ * drawn star has, alternating far and near; the solidity comes from raising a ridge
+ * to a point at the front and the back of the middle, so each of the ten rim edges
+ * becomes two facets meeting along a crease. That is what makes it read as a star
+ * rather than as a cut-out while it turns: the creases catch the light one after
+ * another, so the shape is legible even at the moment it is nearly edge-on.
+ *
+ * @param {THREE.Material} material
+ */
+function buildStar(material) {
+  const OUTER = 0.34; // to the tips
+  const INNER = 0.145; // to the notches between them
+  const RIDGE = 0.075; // how far the ridge stands out either side
+
+  // Ten rim points, the first one straight up: that is what makes it upright, and
+  // the rest follow at even tenths of the turn.
+  const rim = Array.from({ length: 10 }, (_, i) => {
+    const angle = Math.PI / 2 + (i * Math.PI) / 5;
+    const radius = i % 2 === 0 ? OUTER : INNER;
+    return [Math.cos(angle) * radius, Math.sin(angle) * radius];
+  });
+
+  // Two triangles per rim edge — one to the front ridge point, one to the back —
+  // wound so both face outwards. Unindexed, so every facet gets its own flat normal.
+  /** @type {number[]} */
+  const positions = [];
+  for (let i = 0; i < rim.length; i++) {
+    const [ax, ay] = rim[i];
+    const [bx, by] = rim[(i + 1) % rim.length];
+    positions.push(ax, ay, 0, bx, by, 0, 0, 0, RIDGE);
+    positions.push(bx, by, 0, ax, ay, 0, 0, 0, -RIDGE);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(geometry, material);
 }
 
 /** The inner tube: a flat-lying torus. */

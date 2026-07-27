@@ -9,6 +9,12 @@ import { checkStage } from '../src/level-checks.js';
  * the same ones while a map is being typed. What this file is for is running them
  * over the stage list in CI, one `it` per check so a failure names both the stage
  * and the question it failed.
+ *
+ * This is the only file under `test/` that reads the game's levels, and the only one
+ * that should: it is a lint over content, not a test of play. It asks whether a stage
+ * loads, has one spawn, has a star, and can be walked to that star — never how. There
+ * is no route in it to go stale, so redrawing a stage cannot break it; only breaking a
+ * stage can. Everything that plays a level plays a copy, from `helpers/stages.js`.
  */
 
 describe('the stage list', () => {

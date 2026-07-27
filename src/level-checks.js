@@ -66,6 +66,17 @@ export function checkStage(stage) {
     problems: attempt(() => parse(stage, true)),
   });
 
+  // A step reads the cell it is going to and lands on whichever tile there is level
+  // with where it set out from. That only answers to one tile, so two at the same
+  // height in one cell make the second one scenery: you walk through where it is
+  // drawn and nothing happens. It is the easiest mistake to make on an upper layer —
+  // a star on the deck directly over a floor already at that height — and the last
+  // one you would think to look for, since the map reads exactly as intended.
+  checks.push({
+    label: 'never stacks two tiles at the same height',
+    problems: stackedAtOneHeight(map),
+  });
+
   const spawns = tilesOfType(map, 'spawn');
   checks.push({
     label: 'has exactly one spawn',
@@ -139,6 +150,32 @@ export function checkStage(stage) {
   checks.push({ label: 'has no switch that can seal the player in', problems: sealing });
 
   return checks;
+}
+
+/**
+ * Every cell holding two tiles the player could not tell apart by height.
+ *
+ * @param {TileMap} map
+ * @returns {string[]} one sentence per offending cell
+ */
+function stackedAtOneHeight(map) {
+  /** @type {string[]} */
+  const problems = [];
+  for (let gz = 0; gz < map.rows; gz++) {
+    for (let gx = 0; gx < map.cols; gx++) {
+      const column = map.column(gx, gz);
+      for (let i = 0; i < column.length; i++) {
+        for (let j = i + 1; j < column.length; j++) {
+          if (Math.abs(column[i].level - column[j].level) > 1e-6) continue;
+          problems.push(
+            `the cell at ${gx},${gz} holds a ${column[i].type} and a ${column[j].type} ` +
+              `at the same height — a step can only land on one of them`,
+          );
+        }
+      }
+    }
+  }
+  return problems;
 }
 
 /**

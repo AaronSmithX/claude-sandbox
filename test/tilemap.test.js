@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TileMap, tileDef, KEY_COLORS, SWITCH_COLORS } from '../src/tilemap.js';
 import { GLYPHS } from '../src/glyphs.js';
-import { DEFAULT_MAP } from '../src/levels.js';
+import { BIG_MAP } from './helpers/stages.js';
 import { Inventory } from '../src/inventory.js';
 import { makeMap } from './helpers/level.js';
 import { reachableFrom, sealedIn } from '../src/reach.js';
@@ -55,10 +55,11 @@ describe('TileMap parsing', () => {
     expect(p.z).toBeCloseTo(0);
   });
 
-  it('builds the shipped level without complaint', () => {
-    // The one test that touches the real map: it is the only thing that would
-    // catch a typo in a level edit.
-    expect(() => new TileMap(DEFAULT_MAP, { build: false })).not.toThrow();
+  it('parses a full-sized level without complaint', () => {
+    // Every mechanic on one grid: a parser that copes with the little fixtures but
+    // not with a real map's worth of them would otherwise pass. Whether the game's
+    // own stages parse is asked of them directly, in levels.test.js.
+    expect(() => new TileMap(BIG_MAP, { build: false })).not.toThrow();
   });
 });
 
@@ -144,8 +145,8 @@ describe('door facing', () => {
     expect(map._doorFacing(map.get(1, 2))).toBe(0);
   });
 
-  it('gives every door in the shipped level a wall to span', () => {
-    const map = new TileMap(DEFAULT_MAP, { build: false });
+  it('turns every door in a full-sized level to the wall it spans', () => {
+    const map = new TileMap(BIG_MAP, { build: false });
     const doors = map.tiles.flat().filter((t) => t.type === 'door');
     expect(doors).not.toHaveLength(0);
     for (const door of doors) {
@@ -236,6 +237,43 @@ describe('isWalkable (what an enemy may cross)', () => {
     expect(withSwitch.isWalkable(3, 2)).toBe(false);
     withSwitch.pressSwitch(withSwitch.get(1, 2));
     expect(withSwitch.isWalkable(3, 2)).toBe(true);
+  });
+});
+
+describe('the star', () => {
+  /** The star's own mesh, out of holder -> spinner -> art. */
+  function starArt() {
+    const map = new TileMap(['###', '#*#', '###'], { build: true });
+    return map.get(1, 1).spinner.children[0];
+  }
+
+  it('is a five-pointed star standing upright, not a gem', () => {
+    const geometry = starArt().geometry;
+    geometry.computeBoundingBox();
+    const { min, max } = geometry.boundingBox;
+
+    // Ten rim points, each throwing a facet to the front ridge point and one to the
+    // back: twenty triangles. A stock solid would be some other number entirely.
+    expect(geometry.getAttribute('position').count).toBe(20 * 3);
+
+    // It stands in the vertical plane: as tall as it is wide, and much thinner
+    // through than either. A gem is the shape that is the same in all three.
+    const height = max.y - min.y;
+    const width = max.x - min.x;
+    const depth = max.z - min.z;
+    expect(height).toBeCloseTo(width, 1);
+    expect(depth).toBeLessThan(height / 3);
+  });
+
+  it('points straight up, so it is never seen leaning', () => {
+    const position = starArt().geometry.getAttribute('position');
+    let top = { x: 0, y: -Infinity };
+    for (let i = 0; i < position.count; i++) {
+      if (position.getY(i) > top.y) top = { x: position.getX(i), y: position.getY(i) };
+    }
+    // The highest point of the outline is a tip, and it is on the vertical axis.
+    expect(top.x).toBeCloseTo(0);
+    expect(top.y).toBeGreaterThan(0.3);
   });
 });
 
@@ -511,8 +549,8 @@ describe('no switch can seal the player in', () => {
   // src/level-checks.js runs them over every stage — for the suite and the level
   // editor both. What is left here is the pair of cases that prove the check works.
 
-  it('holds for every switch in the shipped level', () => {
-    const map = new TileMap(DEFAULT_MAP, { build: false });
+  it('holds for every switch in a full-sized level', () => {
+    const map = new TileMap(BIG_MAP, { build: false });
     for (const tile of map.tiles.flat().filter((t) => t.type === 'switch')) {
       expect(
         sealedIn(map, tile),

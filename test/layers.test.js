@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LEVEL_RISE, ELEVATOR_PERIOD } from '../src/tilemap.js';
 import { Inventory } from '../src/inventory.js';
 import { Enemies } from '../src/enemy.js';
-import { makeMap, makeGame, advance, step, at } from './helpers/level.js';
+import { makeMap, makeGame, advance, step, walk, at } from './helpers/level.js';
 
 /**
  * Two tiles in one cell — which is the thing elevation on a single layer cannot do.
@@ -55,6 +55,19 @@ describe('parsing layers', () => {
   it('counts every tile on every layer', () => {
     const map = makeMap(BRIDGE);
     expect(map.allTiles()).toHaveLength(4 * 5 + 1);
+  });
+
+  it('finds a tile by the layer it is on, not by where it sits in the column', () => {
+    // A hole in the ground with a deck over it: the cell holds one tile, and that
+    // tile is on layer 1. Counting into the column would answer with the deck for
+    // layer 0 and with nothing for layer 1 — both wrong, and quietly so.
+    const map = makeMap([
+      ['#####', '#@. #', '#####'],
+      ['     ', '   . ', '     '],
+    ]);
+    expect(map.column(3, 1)).toHaveLength(1);
+    expect(map.get(3, 1)).toBe(null);
+    expect(map.get(3, 1, 1).layer).toBe(1);
   });
 
   it('treats a space as nothing at all, which on the ground is a hole', () => {
@@ -133,6 +146,22 @@ describe('a bridge', () => {
     expect(game.player.tile.type).toBe('water');
   });
 
+  it('hands the player what they walk onto up there, hole underneath or not', () => {
+    // Arriving is what triggers a pickup, and arriving asks the map for the tile by
+    // coordinates and layer. With nothing on the ground beneath it the star used to
+    // be walked onto and stood on with the stage never noticing.
+    const game = makeGame([
+      ['######', "#@/' #", '######'],
+      ['      ', '    * ', '      '],
+    ]);
+    expect(step(game, 1, 0)).toBe(true); // the stair
+    expect(step(game, 1, 0)).toBe(true); // the landing at level 1
+    expect(step(game, 1, 0)).toBe(true); // out onto the star, over the hole
+
+    expect(game.player.tile.type).toBe('star');
+    expect(game.inventory.won).toBe(true);
+  });
+
   it('keeps a patrol underneath from catching the player on top', () => {
     const map = makeMap([
       ['#####', '#@-.#', '#####'],
@@ -145,6 +174,43 @@ describe('a bridge', () => {
 
     expect(enemies.hits(onDeck)).toBe(null);
     expect(enemies.hits(onFloor)).toBe(patrol);
+  });
+});
+
+describe('a third layer', () => {
+  /**
+   * Nothing caps the stack at two. A layer is a storey, `level` is `layer` plus
+   * whatever the character adds, and every question the game asks — what joins what,
+   * what you are standing on, what happens when you get there — is asked about a tile
+   * rather than about a storey. So the third layer needs no code of its own, and this
+   * is the test that says so.
+   *
+   * Two stairs up the ground layer, and a star on the second floor with nothing at all
+   * beneath it: the cell holds one tile, and that tile is on layer 2.
+   */
+  const TOWER = [
+    ['#########', "#@/'/\" ##", '#########'],
+    ['         ', '         ', '         '],
+    ['         ', '      *  ', '         '],
+  ];
+
+  it('puts a tile two storeys up, and finds it there', () => {
+    const map = makeMap(TOWER);
+    expect(map.column(6, 1)).toHaveLength(1);
+    expect(map.get(6, 1, 2).type).toBe('star');
+    expect(map.get(6, 1, 2).level).toBe(2);
+    expect(map.get(6, 1, 1)).toBe(null);
+    expect(map.get(6, 1)).toBe(null);
+  });
+
+  it('clears the stage from a star on the second floor', () => {
+    const game = makeGame(TOWER);
+    // Stair, landing, stair, landing, and out onto the star over the hole.
+    expect(walk(game, Array.from({ length: 5 }, () => [1, 0]))).toBe(true);
+
+    expect(at(game)).toEqual({ gx: 6, gz: 1 });
+    expect(game.player.layer).toBe(2);
+    expect(game.inventory.won).toBe(true);
   });
 });
 

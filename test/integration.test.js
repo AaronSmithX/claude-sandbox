@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAP, STAGES, stageLayers } from '../src/levels.js';
 import { LEVEL_RISE } from '../src/tilemap.js';
 import { makeGame, advance, step, walk, at, FRAME } from './helpers/level.js';
+import {
+  BIG_MAP,
+  BRIDGE,
+  CORRIDOR,
+  CRATE_AND_PLATE,
+  ICE_RUNS,
+  LIFT,
+  PAD_PAIR,
+  TWO_DOORS,
+  WALKWAY,
+  layersOf,
+} from './helpers/stages.js';
 
 /**
  * Each level here is the smallest one that makes two mechanics meet: a key and
@@ -89,9 +100,9 @@ describe('switches and columns', () => {
   });
 });
 
-describe('the shipped level', () => {
+describe('a full-sized level', () => {
   // Patrols parked, so this is about the level's shape and nothing else.
-  const level = () => makeGame(DEFAULT_MAP, { enemies: { interval: 999, phase: 0 } });
+  const level = () => makeGame(BIG_MAP, { enemies: { interval: 999, phase: 0 } });
 
   it('sends you down the ice corridor and out the other end', () => {
     const game = level();
@@ -113,9 +124,7 @@ describe('the shipped level', () => {
   });
 });
 
-describe('the opening stages', () => {
-  const stage = (id) => stageLayers(STAGES.find((s) => s.id === id));
-
+describe('a level per mechanic, walked end to end', () => {
   /**
    * `n` copies of one direction, for routes that run in straight lines.
    * @param {number} n
@@ -129,24 +138,24 @@ describe('the opening stages', () => {
   /** @type {Direction} */ const SOUTH = [0, 1];
   /** @type {Direction} */ const NORTH = [0, -1];
 
-  it('walks First Steps to the star', () => {
-    const game = makeGame(stage('first-steps'));
+  it('walks a plain corridor to the star', () => {
+    const game = makeGame(layersOf(CORRIDOR));
     expect(
       walk(game, [...times(6, EAST), ...times(3, SOUTH), WEST]),
     ).toBe(true);
     expect(game.inventory.won).toBe(true);
   });
 
-  it('will not let Lock and Key be finished without the keys', () => {
-    const game = makeGame(stage('lock-and-key'));
+  it('will not let a two-door level be finished without its keys', () => {
+    const game = makeGame(layersOf(TWO_DOORS));
     // Down the only way out of the opening corridor, leaving the gold key behind.
     walk(game, [...times(7, EAST), ...times(2, SOUTH)]);
     expect(at(game)).toEqual({ gx: 8, gz: 3 });
     expect(step(game, -1, 0)).toBe(false); // the gold door, and nothing to open it
   });
 
-  it('walks Lock and Key through both doors to the star', () => {
-    const game = makeGame(stage('lock-and-key'));
+  it('walks a two-door level through both doors to the star', () => {
+    const game = makeGame(layersOf(TWO_DOORS));
 
     walk(game, times(8, EAST)); // the gold key sits past the way down
     expect(game.inventory.keyCount('gold')).toBe(1);
@@ -162,8 +171,8 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
-  it('climbs Up and Over, and can only reach the star down the chute', () => {
-    const game = makeGame(stage('up-and-over'));
+  it('climbs to a walkway, and can only reach the star down the chute', () => {
+    const game = makeGame(layersOf(WALKWAY));
 
     // The pen the star sits in has one way in, and it is not at ground level.
     const map = game.tilemap;
@@ -184,8 +193,8 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
-  it('crosses Over and Under both ways: the deck first, then the river', () => {
-    const game = makeGame(stage('over-and-under'));
+  it('crosses a bridge both ways: the deck first, then the river', () => {
+    const game = makeGame(layersOf(BRIDGE));
 
     // The river is the only way to the star, and it takes the tube.
     walk(game, [...times(2, SOUTH), ...times(2, EAST)]);
@@ -208,17 +217,17 @@ describe('the opening stages', () => {
     expect(game.player.layer).toBe(0);
 
     // The tube is on the far bank; then into the river, and along to the island.
-    walk(game, [...times(3, SOUTH), WEST]);
+    walk(game, [...times(4, SOUTH), WEST]);
     expect(game.inventory.hasTube).toBe(true);
     walk(game, [SOUTH, ...times(2, WEST)]);
-    expect(at(game)).toEqual({ gx: 6, gz: 6 });
+    expect(at(game)).toEqual({ gx: 6, gz: 7 });
 
     expect(step(game, -1, 0)).toBe(true); // onto the island
     expect(game.inventory.won).toBe(true);
   });
 
-  it('rides Going Up for the key, and back down for the door', () => {
-    const game = makeGame(stage('going-up'));
+  it('rides a platform up for the key, and back down for the door', () => {
+    const game = makeGame(layersOf(LIFT));
 
     /** Waits, as a player would, for the platform to come to a storey. */
     function waitForLift(level) {
@@ -253,8 +262,8 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
-  it('solves Heavy Lifting by parking the crate on the plate', () => {
-    const game = makeGame(stage('heavy-lifting'));
+  it('parks the crate on the plate to hold the gate', () => {
+    const game = makeGame(layersOf(CRATE_AND_PLATE));
     const gate = game.tilemap.get(5, 4);
     const plate = game.tilemap.get(8, 1);
 
@@ -282,7 +291,7 @@ describe('the opening stages', () => {
     // plate it used to carry the crate straight over it: the plate then read as held
     // only because the player was standing on it, and the gate shut the moment they
     // walked away to use it.
-    const game = makeGame(stage('heavy-lifting'));
+    const game = makeGame(layersOf(CRATE_AND_PLATE));
     game.player.press(1, 0);
     advance(game, 3); // long enough to walk the whole corridor
     game.player.releaseAll();
@@ -299,15 +308,15 @@ describe('the opening stages', () => {
   });
 
   it('keeps its plate out of reach on foot, so the crate is the only way', () => {
-    const game = makeGame(stage('heavy-lifting'));
+    const game = makeGame(layersOf(CRATE_AND_PLATE));
     // The crate starts between the player and the plate, and a crate is never pulled,
     // so there is no route to the plate that does not put the crate on it first.
     expect(game.blocks.list[0].gx).toBe(3);
     expect(game.tilemap.get(9, 1).type).toBe('wall'); // the corridor ends at the plate
   });
 
-  it('uses the pads in Two Places at Once both ways', () => {
-    const game = makeGame(stage('two-places'));
+  it('uses a pair of pads both ways', () => {
+    const game = makeGame(layersOf(PAD_PAIR));
 
     walk(game, times(3, EAST)); // the third step is the pad
     expect(at(game)).toEqual({ gx: 9, gz: 1 }); // and lands in the sealed room
@@ -326,8 +335,8 @@ describe('the opening stages', () => {
     expect(game.inventory.won).toBe(true);
   });
 
-  it('crosses Thin Ice in three slides', () => {
-    const game = makeGame(stage('thin-ice'));
+  it('crosses three ice runs in three slides', () => {
+    const game = makeGame(layersOf(ICE_RUNS));
 
     walk(game, times(2, EAST));
     step(game, 1, 0); // one press, four tiles of ice

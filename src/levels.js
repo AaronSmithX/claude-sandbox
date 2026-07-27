@@ -143,7 +143,7 @@ const OVER_AND_UNDER = {
   ],
   // The deck: one span at level 1, over water that stays water.
   upper: [
-    ['           ', '           ', '    ...    ', '           ', '           ', '     *     ', '           ', '           ', '           ', '           '],
+    ['           ', '           ', '    ...    ', '           ', '           ', '           ', '           ', '           ', '           ', '           '],
   ],
 };
 
@@ -229,6 +229,43 @@ const TWO_PLACES = {
 };
 
 /**
+ * Three storeys, which is the thing one deck cannot say: that a layer is not a special
+ * case of the ground but just another floor, and that there is no last one.
+ *
+ * The room is a single open hall, and the climb spirals up over it. A stair in the
+ * south-east corner puts you on the east deck; the east deck runs north and the north
+ * deck runs west, both of them over floor you have already walked; a second stair — this
+ * one authored on the deck, not on the ground — lifts you again, and the top deck runs
+ * back east over the north deck to the star. So the cell the star sits in holds three
+ * tiles at once: floor, deck, and the deck above that.
+ *
+ * Nothing is locked and nothing is timed. What the stage asks is that you look up,
+ * find the way on above your head, and walk back over where you have been to reach it.
+ *
+ * @type {Stage}
+ */
+const THREE_STOREYS = {
+  id: 'three-storeys',
+  name: 'Three Storeys',
+  hint: 'A <b>deck</b> can carry another. The way on is over where you have been.',
+  rows: [
+    '###########',
+    '#@........#',
+    '#.........#',
+    '#.........#',
+    '#.........#',
+    "#......./'#",
+    '###########',
+  ],
+  // The east and north decks at level 1, with the stair up to the top storey on the
+  // deck itself; then the top deck at level 2, running back over the north one.
+  upper: [
+    ['           ', " '/....... ", '         . ', '         . ', '         . ', '           ', '           '],
+    ['           ', '           ', ' ........* ', '           ', '           ', '           ', '           '],
+  ],
+};
+
+/**
  * The original single-level game, kept whole as the finale: nine rooms on a 16x16
  * grid, chained so every mechanic sits on the critical path — ice corridor ->
  * gold door -> inner tube -> red switch -> pink switch -> white key -> violet
@@ -243,7 +280,7 @@ const THE_GAUNTLET = {
   rows: [
     '################',
     '#@...#1...#...##',
-    '#....G....X..Zw#',
+    '#. ..G....X..Zw#',
     '#..g.#.O..#...##',
     '#.i..#x..3#..z.#',
     '##i#############',
@@ -270,6 +307,7 @@ export const STAGES = [
   GOING_UP,
   HEAVY_LIFTING,
   TWO_PLACES,
+  THREE_STOREYS,
   THE_GAUNTLET,
 ];
 
