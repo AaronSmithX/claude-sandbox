@@ -337,6 +337,29 @@ const THE_GAUNTLET = {
   ],
 };
 
+/** @type {Stage} */
+const KEYS = {
+  id: 'keys',
+  name: 'Keys',
+  hint: 'Reach the <b>star</b>.',
+  rows: [
+    '#########################',
+    '#@.i.iiiii#...#.........#',
+    '#..iiii#ii#.*.#......g..#',
+    '#ii.iiiiiiG...#.........#',
+    '#iii#iii.i#...#.........#',
+    '#ii.iiii.i#########R#####',
+    '#i.iiiiiii#...~~~~~.~~~~~',
+    '#i.iiiiiiiV...~~~~~.~~~~~',
+    '#iiiiiiiii#-..~.........#',
+    '#####..~###...~.r.#..B#.#',
+    '#...|..~.O~..-~.........#',
+    '#.v....~..~.......#...#.#',
+    '#......~~~~...~.........#',
+    '#######~~~~###~##########',
+  ],
+};
+
 /** Every stage, in play order. @type {Stage[]} */
 export const STAGES = [
   FIRST_STEPS,
@@ -348,6 +371,7 @@ export const STAGES = [
   HEAVY_LIFTING,
   TWO_PLACES,
   THREE_STOREYS,
+  KEYS,
   THE_GAUNTLET,
 ];
 
