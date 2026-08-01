@@ -3,7 +3,7 @@
  * otherwise.
  *
  * A map's grid is one character per cell, because that is what makes a level readable
- * as a picture of itself — a run of `'` looks like the raised ground it is. But a
+ * as a picture of itself — a run of `#` looks like the wall it is. But a
  * character is only a *binding*: what it binds to is a name from the vocabulary in
  * `src/tilemap.js`, and names never run out. That is the whole point of the split.
  * Adding a fourth key colour is a line in `KEY_COLORS`; it does not cost two more
@@ -24,10 +24,12 @@ export const GLYPHS = {
   '.': 'floor',
   '~': 'water',
   i: 'ice',
-  // Ground that sits higher up. One apostrophe per level, so the map shows its own
-  // contours: a run of `'` reads as raised, `"` as raised further.
-  "'": 'floor:1',
-  '"': 'floor:2',
+  // There is no character for raised ground, and deliberately so. Height comes from
+  // the layer a tile is drawn on: `.` on the second grid is floor one level up. A `'`
+  // that meant "floor:1" drawn on the ground grid used to do the same job, and it
+  // read badly both ways round — the walkable space it made never appeared on the
+  // grid for the storey it belonged to, and it collided with whatever the layer above
+  // had to say about the same cell.
   '/': 'stair',
   '\\': 'slide',
   E: 'elevator/top',

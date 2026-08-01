@@ -49,9 +49,14 @@ export const PAD_COLORS = {
  * new colour is one line there and nothing here: add `rust` to KEY_COLORS and
  * `key:rust` and `door:rust` both exist.
  *
- *   floor:N   ground N levels up. No limit, and no character to find for the next one.
+ *   floor:N   ground N levels up, on top of whatever the layer already contributes.
+ *             No character binds to it: height is said by which grid a tile is drawn
+ *             on, so that every storey's grid shows exactly the space you can walk on
+ *             at that storey. `floor:N` is still here for a stage that wants to bind a
+ *             character of its own to it.
  *   stair     joins two floors one level apart, walkable both ways
- *   slide     a chute you can only enter at the top, and only ride down
+ *   slide     a chute that only ever carries you downhill. You can step on to the
+ *             foot of one, but it tips you straight back off again
  *   elevator  a platform running between the floors beside it, starting at the bottom,
  *             or at the top with `elevator/top` so a pair of them can pass each other
  *   crate     ordinary floor with a pushable crate on it — one tile at a time, and
@@ -66,9 +71,11 @@ export const PAD_COLORS = {
  * Both ramps work out where they run and how far they climb from the ground on either
  * side of them, so a map never has to state its elevation twice.
  *
- * A map can also be several grids deep, ground first, which is what a bridge needs:
- * a deck on the layer above the water it crosses. A space means "nothing here" —
- * the usual case above the ground, and a hole in it down below.
+ * A map is several grids deep, ground first: one grid per storey, and a tile's height
+ * is the grid it is drawn on. That is what a bridge needs — a deck on the layer above
+ * the water it crosses — and it is also how all raised ground is said, so reading the
+ * grid for a storey tells you the whole of where you can stand on it. A space means
+ * "nothing here": the usual case above the ground, and a hole in it down below.
  *
  * A key opens only a door of its own colour. A plate is held down by anything standing
  * on it — you or a crate — and its gate is open for exactly as long as one of its plates
@@ -165,6 +172,26 @@ export const WATER_SINK = 0.24;
 // walker is about 0.9 tall, and at half a tile they wade through the planks chest-high
 // instead of passing beneath them.
 export const LEVEL_RISE = TILE_SIZE;
+
+// Four steps to a stair. Enough that it reads as a staircase from this camera
+// distance, few enough that each step is a chunky slab rather than a sliver. Up here
+// with the elevation rather than down with the geometry because it decides how high
+// a stair is *walked* as well as how one is drawn — see `STAIR_STAND`.
+const STAIR_TREADS = 4;
+
+/**
+ * How far above a stair's own level the player stands on one: half a step.
+ *
+ * A stair's steps are spread along the tile rather than stacked at its middle, and
+ * `level` is the height of the middle of the flight — halfway up, which is what makes
+ * a climb two half-steps instead of one lurch. But the step actually under the feet at
+ * that point is the next one up, half a step higher. Standing at the level itself puts
+ * the feet in the gap between two steps and the shins through the one in front.
+ *
+ * Like `WATER_SINK`, this moves the body and not the ground: the camera follows
+ * `heightOf`, so a stair still reads as the even climb it is.
+ */
+export const STAIR_STAND = LEVEL_RISE / (2 * STAIR_TREADS);
 
 // The tile types that join two heights. Neither is ground you can arrive at from
 // the side: you take them along their run or not at all.
@@ -315,21 +342,39 @@ export class TileMap {
     }
 
     this.layers.forEach((rows, layer) => {
-      if (rows.length !== this.rows) {
+      // The ground layer says how big the map is, so it has to be square to itself. An
+      // upper layer is mostly sky and is padded instead: a storey with one deck on it
+      // is two characters and a lot of nothing, and demanding the nothing be typed out
+      // would be busywork with a row-length error at the end of it. Since height is now
+      // said by which layer a tile is on, most maps have several of these.
+      const ground = layer === 0;
+      if (ground && rows.length !== this.rows) {
         throw new Error(
           `Map layer ${layer} has ${rows.length} rows, expected ${this.rows}`,
         );
       }
+      if (rows.length > this.rows) {
+        throw new Error(
+          `Map layer ${layer} has ${rows.length} rows, more than the ground's ${this.rows}`,
+        );
+      }
 
       for (let z = 0; z < this.rows; z++) {
-        if (rows[z].length !== this.cols) {
+        const row = rows[z] ?? '';
+        if (ground && row.length !== this.cols) {
           throw new Error(
-            `Map row ${z} is ${rows[z].length} characters, expected ${this.cols}`,
+            `Map row ${z} is ${row.length} characters, expected ${this.cols}`,
+          );
+        }
+        if (row.length > this.cols) {
+          throw new Error(
+            `Map layer ${layer} row ${z} is ${row.length} characters, wider than the ` +
+              `ground's ${this.cols}`,
           );
         }
 
-        for (let x = 0; x < this.cols; x++) {
-          const char = rows[z][x];
+        for (let x = 0; x < row.length; x++) {
+          const char = row[x];
           // Nothing on this layer here: the usual case above the ground, and a hole
           // in the ground when it happens down there.
           if (char === ' ') continue;
@@ -423,23 +468,94 @@ export class TileMap {
   }
 
   /**
-   * The level of a tile you can stand on, or null for holes, walls and ramps.
+   * Every level a ramp on `layer` could land on at one cell.
    *
-   * A ramp reads its ends on its own layer: a stair up to a bridge deck is authored
-   * on the ground layer, and the deck's landing is raised ground there. That keeps
-   * derivation local, and keeps a deck from silently becoming the end of a stair
-   * that was meant for the floor underneath it.
+   * Its own layer answers if it has anything to say, and that is nearly always: a
+   * stair between two floors of the same storey reads its ends right there, and
+   * taking them keeps a deck overhead from being read as the end of a stair meant
+   * for the floor underneath it.
+   *
+   * Where its own layer is silent — a hole, or open air under a bridge — the ramp
+   * looks up and down the column instead. Together with the fallback in
+   * `_landingPairs`, that is what lets a stair climb from a plain `.` to the plain `.`
+   * of the storey above: neither end has to be spelled as raised ground, and neither
+   * has to be on the ramp's own layer.
+   *
+   * Heights, not tiles: two tiles stacked at the *same* height are one landing to a
+   * ramp, which arrives at that height and has no say in which of them it meets.
+   * (That they are stacked at all is its own defect, and `level-checks.js` reports
+   * it — but it is not the ramp's to complain about.)
+   *
+   * A `layer` of null drops the preference and reads the whole column, which is what
+   * `_landingPairs` falls back to when the ramp's own layer had nothing usable to say.
    */
-  _groundLevel(gx, gz, layer = 0) {
-    const t = this.get(gx, gz, layer);
-    if (!t || t.type === 'wall' || RAMPS.has(t.type) || t.type === 'elevator') return null;
-    return t.level;
+  _landings(gx, gz, layer) {
+    const standable = this.column(gx, gz).filter(
+      (t) => t.type !== 'wall' && !RAMPS.has(t.type) && t.type !== 'elevator',
+    );
+    const own = layer === null ? [] : standable.filter((t) => t.layer === layer);
+
+    /** @type {number[]} */
+    const levels = [];
+    for (const t of own.length ? own : standable) {
+      if (!levels.some((level) => same(level, t.level))) levels.push(t.level);
+    }
+    return levels;
+  }
+
+  /**
+   * Every pair of floors a ramp on `layer` between two cells could join: one landing
+   * from each end, at different heights. Usually exactly one, which is the answer;
+   * none means the ramp joins nothing, and more than one means the map has not said
+   * enough for the ramp to know which storeys are its own.
+   *
+   * @returns {{back: number, forward: number}[]}
+   */
+  _landingPairs(backCell, forwardCell, layer) {
+    const own = this._pairsBetween(backCell, forwardCell, layer);
+    if (own.length) return own;
+
+    // Its own layer answered at both ends and gave the same height twice, which is no
+    // ramp at all. Look up and down the columns before giving up, because this is what
+    // a stair between two plain `.` tiles a storey apart looks like: ordinary floor
+    // behind it, and ahead of it a cell holding both ordinary floor and the deck over
+    // it. The deck is the landing. What keeps the floor under that deck from being
+    // taken for the landing instead is `_rampExit`, which asks the ramp which of its
+    // two ends you are walking towards.
+    return this._pairsBetween(backCell, forwardCell, null);
+  }
+
+  /** @returns {{back: number, forward: number}[]} */
+  _pairsBetween([backX, backZ], [forwardX, forwardZ], layer) {
+    const pairs = [];
+    for (const back of this._landings(backX, backZ, layer)) {
+      for (const forward of this._landings(forwardX, forwardZ, layer)) {
+        if (!same(back, forward)) pairs.push({ back, forward });
+      }
+    }
+    return pairs;
+  }
+
+  /**
+   * Complains about a ramp that could join more than one pair of floors. Its own
+   * rule was not enough to pick one, and picking for it is how a stair ends up
+   * climbing to the deck when it was meant for the floor underneath.
+   */
+  _ambiguous(tile, what, bothAxes) {
+    return new Error(
+      bothAxes
+        ? `The ${what} at ${tile.gx},${tile.gz} could run either way: it has floors ` +
+          'at different heights on both axes'
+        : `The ${what} at ${tile.gx},${tile.gz} could join more than one pair of ` +
+          'floors: say which by leaving only one of them beside it',
+    );
   }
 
   /**
    * The axis a ramp runs along, judged by the ground at its ends: the one where
    * both sides are standable and at different heights.
-   * @returns {{run: 'x'|'z', axis: [number, number], low: number, high: number}}
+   * @returns {{run: 'x'|'z', axis: [number, number], back: number, forward: number,
+   *   low: number, high: number}}
    */
   _rampAxis(tile, what) {
     const options = [
@@ -450,10 +566,20 @@ export class TileMap {
     const found = [];
     for (const option of options) {
       const [dx, dz] = option.axis;
-      const back = this._groundLevel(tile.gx - dx, tile.gz - dz, tile.layer);
-      const forward = this._groundLevel(tile.gx + dx, tile.gz + dz, tile.layer);
-      if (back === null || forward === null || back === forward) continue;
-      found.push({ ...option, low: Math.min(back, forward), high: Math.max(back, forward) });
+      const pairs = this._landingPairs(
+        [tile.gx - dx, tile.gz - dz],
+        [tile.gx + dx, tile.gz + dz],
+        tile.layer,
+      );
+      for (const { back, forward } of pairs) {
+        found.push({
+          ...option,
+          back,
+          forward,
+          low: Math.min(back, forward),
+          high: Math.max(back, forward),
+        });
+      }
     }
 
     if (found.length === 0) {
@@ -462,18 +588,15 @@ export class TileMap {
           'different heights on opposite sides of it',
       );
     }
-    if (found.length === 2) {
-      throw new Error(
-        `The ${what} at ${tile.gx},${tile.gz} could run either way: it has floors ` +
-          'at different heights on both axes',
-      );
+    if (found.length > 1) {
+      throw this._ambiguous(tile, what, new Set(found.map((f) => f.run)).size > 1);
     }
     return found[0];
   }
 
   /** A stair climbs exactly one level, and may be taken in either direction. */
   _deriveStair(tile) {
-    const { run, axis, low, high } = this._rampAxis(tile, 'stair');
+    const { run, axis, forward, low, high } = this._rampAxis(tile, 'stair');
     if (high - low !== 1) {
       throw new Error(
         `The stair at ${tile.gx},${tile.gz} spans ${high - low} levels: a stair ` +
@@ -481,8 +604,7 @@ export class TileMap {
       );
     }
 
-    const higherIsForward =
-      this._groundLevel(tile.gx + axis[0], tile.gz + axis[1], tile.layer) === high;
+    const higherIsForward = same(forward, high);
     tile.run = run;
     tile.low = low;
     tile.high = high;
@@ -522,19 +644,30 @@ export class TileMap {
 
     const first = parts[0];
     const last = parts[parts.length - 1];
-    const above = this._groundLevel(first.gx - dx, first.gz - dz, tile.layer);
-    const below = this._groundLevel(last.gx + dx, last.gz + dz, tile.layer);
-    if (above === null || below === null) {
+    /** @type {[number, number]} */
+    const backCell = [first.gx - dx, first.gz - dz];
+    /** @type {[number, number]} */
+    const forwardCell = [last.gx + dx, last.gz + dz];
+    if (
+      this._landings(...backCell, tile.layer).length === 0 ||
+      this._landings(...forwardCell, tile.layer).length === 0
+    ) {
       throw new Error(
         `The chute at ${first.gx},${first.gz} does not land: a slide needs floor ` +
           'at both ends of its run',
       );
     }
-    if (above === below) {
+
+    // Both ends read their whole column, so a chute may fall from a deck to the floor
+    // under it just as a stair may climb the other way.
+    const pairs = this._landingPairs(backCell, forwardCell, tile.layer);
+    if (pairs.length === 0) {
       throw new Error(
         `The chute at ${first.gx},${first.gz} is level: a slide has to go down`,
       );
     }
+    if (pairs.length > 1) throw this._ambiguous(first, 'chute', false);
+    const { back: above, forward: below } = pairs[0];
 
     // Downhill sets the direction of travel, whichever way round it was authored.
     const downhill = above > below;
@@ -550,6 +683,11 @@ export class TileMap {
       part.dir = step;
       part.up = opposite(step);
       part.level = top - drop * (index + 1);
+      // The storeys the chute spans, as a stair records them. What is built reads
+      // `low` to know which floor its stonework stands on, so that a chute between
+      // two upper storeys is drawn there and not down through everything below.
+      part.low = bottom;
+      part.high = top;
     });
     // Each tile joins whatever is behind and ahead of it along the fall, which is
     // either the next tile of the chute or the floor at one end.
@@ -727,7 +865,9 @@ export class TileMap {
 
   /**
    * Where something standing on this tile sits. That is the tile's own height, less
-   * the sink if it is water — the one tile you stand *in* rather than on.
+   * the sink if it is water — the one tile you stand *in* rather than on — and plus
+   * half a step on a stair, where the step under the feet is not the middle of the
+   * flight the tile's height names.
    */
   surfaceY(gx, gz, layer = 0) {
     return this.surfaceOf(this.get(gx, gz, layer));
@@ -736,7 +876,9 @@ export class TileMap {
   /** @param {?import('./types.js').Tile} tile */
   surfaceOf(tile) {
     if (!tile) return 0;
-    return this.heightOf(tile) - (tile.type === 'water' ? WATER_SINK : 0);
+    if (tile.type === 'water') return this.heightOf(tile) - WATER_SINK;
+    if (tile.type === 'stair') return this.heightOf(tile) + STAIR_STAND;
+    return this.heightOf(tile);
   }
 
   /** True when standing here means sliding on: ice, and the slides that fall. */
@@ -757,8 +899,10 @@ export class TileMap {
    *    wall you can see over;
    *  - a stair connects its two ends, and only along its run — its flanks are the
    *    side of a staircase, not a way on;
-   *  - a slide is one-way. It may only be entered at the top and only ridden
-   *    downhill, which is what makes a chute a commitment rather than a shortcut.
+   *  - a slide may be *left* only downhill, which is what makes a chute a commitment
+   *    rather than a shortcut. It may be stepped on to from either end — but coming
+   *    at it from the bottom only buys you a tile, since the chute then carries you
+   *    straight back off it.
    */
   isConnected(from, to) {
     if (!from || !to) return false;
@@ -766,16 +910,20 @@ export class TileMap {
     /** @type {import('./types.js').Direction} */
     const move = [to.gx - from.gx, to.gz - from.gz];
     if (Math.abs(move[0]) + Math.abs(move[1]) !== 1) return false;
-    if (!this._allowsMove(from, move)) return false;
-    if (!this._allowsMove(to, move)) return false;
+    if (!this._allowsMove(from, move, 'leave')) return false;
+    if (!this._allowsMove(to, move, 'enter')) return false;
 
-    // A ramp joins two known levels, so the tile at the other end has to be at one
-    // of them. Asking the ramp rather than measuring keeps a chute's fractional
-    // heights exact, however many tiles it falls across.
-    if (RAMPS.has(from.type) && !from.joins.some((level) => same(level, to.level))) {
-      return false;
-    }
-    if (RAMPS.has(to.type) && !to.joins.some((level) => same(level, from.level))) {
+    // A ramp joins two known levels, and *which* of them is in play depends on the way
+    // you are walking it: leaving a ramp puts you at the end you are walking towards,
+    // and stepping on to one puts you at the end nearest where you set off. Asking the
+    // ramp rather than measuring keeps a chute's fractional heights exact, however
+    // many tiles it falls across.
+    //
+    // It has to be the one end rather than either, because a cell can hold a deck and
+    // the floor under it: a stair whose landing is that deck would otherwise be joined
+    // to the floor beneath it as well, and walking up would arrive on the ground.
+    if (RAMPS.has(from.type) && !same(this._rampExit(from, move), to.level)) return false;
+    if (RAMPS.has(to.type) && !same(this._rampExit(to, opposite(move)), from.level)) {
       return false;
     }
     if (RAMPS.has(from.type) || RAMPS.has(to.type)) return true;
@@ -802,20 +950,54 @@ export class TileMap {
   }
 
   /**
-   * Whether a ramp permits being crossed this way. Ordinary ground permits all.
+   * The level at one end of a ramp: the end you reach by walking `move` along it.
+   *
+   * The two kinds record their ends differently, and for a reason. A stair is always
+   * one tile, so its ends are the floors it joins and `low`/`high` name them. A chute
+   * may be one tile of several, so `joins` holds the levels immediately *beside* it
+   * along the fall — which is the next tile of the chute rather than the floor at the
+   * end of the run — ordered uphill first.
+   *
    * @param {import('./types.js').Tile} tile
    * @param {import('./types.js').Direction} move
    */
-  _allowsMove(tile, [dx, dz]) {
+  _rampExit(tile, [dx, dz]) {
+    const [ux, uz] = tile.up ?? [0, 0];
+    const uphill = dx === ux && dz === uz;
+    if (tile.type === 'slide') return tile.joins?.[uphill ? 0 : 1];
+    return uphill ? tile.high : tile.low;
+  }
+
+  /**
+   * Whether a ramp permits being crossed this way. Ordinary ground permits all.
+   * @param {import('./types.js').Tile} tile
+   * @param {import('./types.js').Direction} move
+   * @param {'enter'|'leave'} role which end of the move this tile is
+   */
+  _allowsMove(tile, [dx, dz], role) {
     if (!RAMPS.has(tile.type)) return true;
     const alongRun = tile.run === 'x' ? dz === 0 : dx === 0;
     if (!alongRun) return false;
-    // A slide only ever goes one way.
-    if (tile.type === 'slide') {
+    // A slide only ever *goes* one way. Getting on to it from the bottom is allowed,
+    // and is a mistake rather than a route: nothing leaves a chute uphill, so the
+    // step is undone by the fall the moment it lands.
+    if (tile.type === 'slide' && role === 'leave') {
       const [fallX, fallZ] = tile.dir ?? [0, 0];
       return dx === fallX && dz === fallZ;
     }
     return true;
+  }
+
+  /**
+   * The way this tile carries whatever comes to rest on it, or null if it does not
+   * carry at all. A chute has a fall of its own and imposes it, whichever end you
+   * arrived from; ice has none, and hands you back your own momentum by saying null.
+   *
+   * @param {?import('./types.js').Tile} tile
+   * @returns {?import('./types.js').Direction}
+   */
+  slideDirection(tile) {
+    return tile?.type === 'slide' ? (tile.dir ?? null) : null;
   }
 
   /**
@@ -1309,7 +1491,7 @@ export class TileMap {
       }
 
       if (tile.type === 'stair') {
-        const stair = buildStair(tile, this._litMaterial(0x6b7686, 0.08), stoneMat);
+        const stair = buildStair(tile, this._litMaterial(0x6b7686, 0.08));
         stair.position.set(world.x, 0, world.z);
         this.group.add(stair);
         continue;
@@ -1331,8 +1513,10 @@ export class TileMap {
       if (tile.type === 'ice') iceTiles.push({ x: world.x, y: height, z: world.z });
 
       if (tile.layer > 0) {
-        // A tile on an upper layer is a deck: a span on legs, because the whole
-        // point of a bridge is that there is something underneath it.
+        // Anything off the ground is a span on legs. Not solid stone down to the
+        // floor plane: a cell that is a space on the grid below is a space, and
+        // filling it in would deny what the map plainly says — which is the whole
+        // reason height is drawn on the layer it belongs to.
         const deck = buildDeck(height, mat, stoneMat);
         deck.position.set(world.x, 0, world.z);
         this.group.add(deck);
@@ -1380,15 +1564,14 @@ export class TileMap {
     return tallest;
   }
 
-  /** How far one tile of a chute falls, in world units. */
+  /**
+   * How far one tile of a chute falls, in world units. Read off what derivation
+   * already worked out — `joins` is [behind, ahead] along the fall, so the drop is
+   * the tile's own level less what is ahead of it, whether that is the next tile of
+   * the chute or the floor it lands on, and on whichever layer that floor lives.
+   */
   _chuteDrop(tile) {
-    const [dx, dz] = tile.dir;
-    const next = this.get(tile.gx + dx, tile.gz + dz, tile.layer);
-    const below =
-      next?.type === 'slide'
-        ? next.level
-        : this._groundLevel(tile.gx + dx, tile.gz + dz, tile.layer);
-    return (tile.level - (below ?? tile.level)) * LEVEL_RISE;
+    return (tile.level - tile.joins[1]) * LEVEL_RISE;
   }
 
   /** Builds the mesh that sits on top of a tile's floor, if it has one. */
@@ -1681,9 +1864,10 @@ function buildDoor(material, panelMaterial) {
 // if a player is to pass beneath one without ever wearing it as a hat.
 const DECK_THICKNESS = 0.05;
 
-// Three treads to a stair. Enough that it reads as a staircase from this camera
-// distance, few enough that each tread is a chunky block rather than a sliver.
-const STAIR_TREADS = 3;
+// How thick one step is. A stair is four slabs hanging in the air rather than blocks
+// standing on anything, so this is the whole of a step's vertical extent — which is
+// what keeps a stair out of the storey underneath it however high up it is.
+const STAIR_TREAD_THICKNESS = 0.1;
 
 // A chute's ice bed, and the stone soffit closing it from below. Named because what
 // goes under the chute is positioned off the underside of the bed, and two literals a
@@ -1692,25 +1876,48 @@ const SLIDE_BED = 0.08;
 const SLIDE_SOFFIT = 0.14;
 
 /**
- * A staircase filling one tile: treads climbing from the low end to the high one,
- * each a block standing on the ground rather than a step floating above it.
+ * How far a chute's stonework sinks into the floor it lands on, so that nothing
+ * floats. It stops there rather than at the world floor plane: a ramp belongs to the
+ * storey it starts from, and a chute between the third floor and the second is drawn
+ * on the second — not as a column of masonry through everything under it, blocking
+ * out rooms that have their own ground.
+ */
+const CHUTE_FOOTING = 0.2;
+
+/**
+ * A staircase filling one tile: four steps climbing from the low end to the high one,
+ * each a slab floating in the air. Nothing holds them up and nothing fills the gaps
+ * between them, so a stair occupies only the band of height it actually climbs and
+ * the storey underneath is left alone.
+ *
+ * One material for all four: a step in a different grey from its neighbours reads as
+ * a different thing rather than as the same staircase.
+ *
+ * Each step is at the height of the climb where it *sits* along the run — so the
+ * flight straddles the tile's own level rather than starting at it, and the middle of
+ * the staircase is the middle of the climb. That is what `STAIR_STAND` is measured
+ * against: the player stands on the step under their feet, not on the flight's mean.
  *
  * Built with local +z as the way up, then turned to face the tile's own `up`.
  */
-function buildStair(tile, treadMaterial, sideMaterial) {
+function buildStair(tile, treadMaterial) {
   const group = new THREE.Group();
   const lowY = tile.low * LEVEL_RISE;
   const rise = (tile.high - tile.low) * LEVEL_RISE;
   const depth = (TILE_SIZE * 0.98) / STAIR_TREADS;
 
   for (let i = 0; i < STAIR_TREADS; i++) {
-    const top = lowY + (rise * (i + 1)) / STAIR_TREADS;
-    const height = top + 0.2; // down past the floor plane, so nothing floats
+    const top = lowY + (rise * (i + 0.5)) / STAIR_TREADS;
     const tread = new THREE.Mesh(
-      new THREE.BoxGeometry(TILE_SIZE * 0.98, height, depth),
-      i === STAIR_TREADS - 1 ? treadMaterial : sideMaterial,
+      new THREE.BoxGeometry(TILE_SIZE * 0.98, STAIR_TREAD_THICKNESS, depth),
+      treadMaterial,
     );
-    tread.position.set(0, top - height / 2, -TILE_SIZE / 2 + depth * (i + 0.5));
+    tread.name = 'stair-tread';
+    tread.position.set(
+      0,
+      top - STAIR_TREAD_THICKNESS / 2,
+      -TILE_SIZE / 2 + depth * (i + 0.5),
+    );
     tread.castShadow = true;
     tread.receiveShadow = true;
     group.add(tread);
@@ -1779,7 +1986,8 @@ function buildSlide(tile, drop, surfaceMaterial, frameMaterial) {
   group.add(soffit);
 
   const plinthTop = centre - SLIDE_BED / 2 - SLIDE_SOFFIT - fall;
-  const plinthHeight = plinthTop + 0.2; // down past the floor plane, so nothing floats
+  // Down to the floor of the storey the chute lands on, and no further.
+  const plinthHeight = plinthTop - tile.low * LEVEL_RISE + CHUTE_FOOTING;
   // A chute that starts low and falls steeply leaves no room for one, and a box of
   // negative height is a box turned inside out.
   if (plinthHeight > 0.02) {

@@ -11,6 +11,7 @@ import brightSource from './scores/bright.txt?raw';
 import tensionSource from './scores/tension.txt?raw';
 import marchSource from './scores/march.txt?raw';
 import footstepSource from './scores/footstep.txt?raw';
+import bumpSource from './scores/bump.txt?raw';
 import slideSource from './scores/slide.txt?raw';
 import pickupSource from './scores/pickup.txt?raw';
 import doorSource from './scores/door.txt?raw';
@@ -31,6 +32,7 @@ export const SCORE_SOURCES = {
   tension: tensionSource,
   march: marchSource,
   footstep: footstepSource,
+  bump: bumpSource,
   slide: slideSource,
   pickup: pickupSource,
   door: doorSource,

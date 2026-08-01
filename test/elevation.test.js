@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { LEVEL_RISE, WATER_SINK } from '../src/tilemap.js';
+import { describe, it, expect, vi } from 'vitest';
+import { LEVEL_RISE, WATER_SINK, STAIR_STAND } from '../src/tilemap.js';
 import { Inventory } from '../src/inventory.js';
 import { Enemies } from '../src/enemy.js';
 import { makeMap, makeGame, advance, step, at, FRAME } from './helpers/level.js';
@@ -11,22 +11,28 @@ import { makeMap, makeGame, advance, step, at, FRAME } from './helpers/level.js'
  */
 
 describe('parsing elevation', () => {
-  it('reads a level off the floor character', () => {
-    const map = makeMap(["#####", "#@.'#", '#####']);
+  it('takes a tile’s level from the layer it is drawn on', () => {
+    const map = makeMap([
+      ['#####', '#@. #', '#####'],
+      ['', '   .', ''],
+    ]);
     expect(map.get(1, 1).level).toBe(0);
-    expect(map.get(3, 1).level).toBe(1);
+    expect(map.get(3, 1, 1).level).toBe(1);
   });
 
-  it('stacks two levels for a double mark', () => {
-    const map = makeMap(['####', '#@"#', '####']);
-    expect(map.get(2, 1).level).toBe(2);
+  it('stacks the layers, so the third grid is two levels up', () => {
+    const map = makeMap([['####', '#@ #', '####'], ['', '', ''], ['', '  .', '']]);
+    expect(map.get(2, 1, 2).level).toBe(2);
   });
 
   it('puts a tile at level times the rise, and water below its own ground', () => {
-    const map = makeMap(["######", "#@.'~#", '######']);
+    const map = makeMap([
+      ['######', '#@. ~#', '######'],
+      ['', '   .', ''],
+    ]);
     expect(map.tileHeight(1, 1)).toBe(0);
-    expect(map.tileHeight(3, 1)).toBe(LEVEL_RISE);
-    expect(map.surfaceY(3, 1)).toBe(LEVEL_RISE);
+    expect(map.tileHeight(3, 1, 1)).toBe(LEVEL_RISE);
+    expect(map.surfaceY(3, 1, 1)).toBe(LEVEL_RISE);
     expect(map.surfaceY(4, 1)).toBe(-WATER_SINK);
     // Off the map is level ground, as it was before there was elevation.
     expect(map.surfaceY(-1, -1)).toBe(0);
@@ -34,7 +40,10 @@ describe('parsing elevation', () => {
 });
 
 describe('a stair', () => {
-  const LEVEL = ["#####", "#@/'#", '#####'];
+  const LEVEL = [
+    ['#####', '#@/ #', '#####'],
+    ['', '   .', ''],
+  ];
 
   it('works out its run, its ends and its own half-way height', () => {
     const stair = makeMap(LEVEL).get(2, 1);
@@ -46,7 +55,7 @@ describe('a stair', () => {
   });
 
   it('reads the same climb authored the other way round', () => {
-    const stair = makeMap(["#####", "#'/@#", '#####']).get(2, 1);
+    const stair = makeMap([['#####', '# /@#', '#####'], ['', ' .', '']]).get(2, 1);
     expect(stair.up).toEqual([-1, 0]);
     expect(stair.level).toBe(0.5);
   });
@@ -65,14 +74,20 @@ describe('a stair', () => {
     const game = makeGame(LEVEL);
     const ground = game.player.mesh.position.y;
     step(game, 1, 0);
-    expect(game.player.mesh.position.y).toBeCloseTo(ground + LEVEL_RISE / 2);
+    // Halfway up the climb, and half a step above that: the flight straddles the
+    // tile's level, and the player stands on the step under their feet rather than
+    // in the gap between two of them.
+    expect(game.player.mesh.position.y).toBeCloseTo(ground + LEVEL_RISE / 2 + STAIR_STAND);
     step(game, 1, 0);
     expect(game.player.mesh.position.y).toBeCloseTo(ground + LEVEL_RISE);
   });
 
   it('cannot be stepped onto from the side', () => {
     //   the stair runs east-west, so its north and south faces are its flanks
-    const game = makeGame(["#####", "#.@.#", "#./'#", '#####']);
+    const game = makeGame([
+      ['#####', '#.@.#', '#./ #', '#####'],
+      ['', '', '   .', ''],
+    ]);
     expect(step(game, 0, 1)).toBe(false);
     expect(at(game)).toEqual({ gx: 2, gz: 1 });
   });
@@ -82,25 +97,29 @@ describe('a stair', () => {
   });
 
   it('refuses to span more than one level', () => {
-    expect(() => makeMap(['#####', '#@/"#', '#####'])).toThrow(/joins floors exactly one level apart/);
+    const twoUp = [['#####', '#@/ #', '#####'], ['', '', ''], ['', '   .', '']];
+    expect(() => makeMap(twoUp)).toThrow(/joins floors exactly one level apart/);
   });
 
   it('refuses to be ambiguous about which way it runs', () => {
-    expect(() => makeMap(["#####", "#.'.#", "#'/.#", "#...#", '#####'])).toThrow(
-      /could run either way/,
-    );
+    expect(() =>
+      makeMap([
+        ['#####', '#. .#', '# /.#', '#...#', '#####'],
+        ['', '  .', ' .', '', ''],
+      ]),
+    ).toThrow(/could run either way/);
   });
 });
 
 describe('a ledge', () => {
   it('is a wall you can see over', () => {
-    const game = makeGame(["#####", "#@'.#", '#####']);
+    const game = makeGame([['#####', '#@ .#', '#####'], ['', '  .', '']]);
     expect(step(game, 1, 0)).toBe(false);
     expect(at(game)).toEqual({ gx: 1, gz: 1 });
   });
 
   it('stops a walk that is already running rather than dropping the player off', () => {
-    const game = makeGame(["######", "#@..'#", '######']);
+    const game = makeGame([['######', '#@.. #', '######'], ['', '    .', '']]);
     game.player.press(1, 0);
     advance(game, 1);
     expect(at(game)).toEqual({ gx: 3, gz: 1 });
@@ -112,15 +131,20 @@ describe('a chute', () => {
   // String.raw, because a map full of backslashes is unreadable escaped.
   const row = String.raw;
 
-  /** Puts the player on a tile the map cannot spawn them on, like a plateau. */
-  function standOn(game, gx, gz) {
+  /**
+   * Puts the player on a tile the map cannot spawn them on, like the head of a chute.
+   * The tile as well as the coordinates, since raised ground lives on an upper layer
+   * and a cell's ground-layer entry there is the hole underneath it.
+   */
+  function standOn(game, gx, gz, layer = 0) {
     game.player.gx = gx;
     game.player.gz = gz;
+    game.player.tile = game.tilemap.get(gx, gz, layer);
     game.player._snapToGrid();
   }
 
   it('descends, and knows which way', () => {
-    const map = makeMap(['#####', row`#'\.#`, '#####']);
+    const map = makeMap([['#####', row`# \.#`, '#####'], ['', ' .', '']]);
     const slide = map.get(2, 1);
     expect(slide.run).toBe('x');
     expect(slide.dir).toEqual([1, 0]);
@@ -129,8 +153,12 @@ describe('a chute', () => {
 
   it('spreads a longer drop evenly across its tiles', () => {
     // Two levels down over three tiles: four equal steps of half a level.
-    const map = makeMap(['#######', row`#"\\\.#`, '#######']);
-    expect(map.get(1, 1).level).toBe(2);
+    const map = makeMap([
+      ['#######', row`# \\\.#`, '#######'],
+      ['', '', ''],
+      ['', ' .', ''],
+    ]);
+    expect(map.get(1, 1, 2).level).toBe(2);
     expect(map.get(2, 1).level).toBeCloseTo(1.5);
     expect(map.get(3, 1).level).toBeCloseTo(1);
     expect(map.get(4, 1).level).toBeCloseTo(0.5);
@@ -139,43 +167,83 @@ describe('a chute', () => {
 
   it('runs downhill whichever way round it was authored', () => {
     // Authored low end first this time: the chute still falls towards the low end.
-    const downhill = makeMap(['#######', row`#.\\\"#`, '#######']);
+    const downhill = makeMap([
+      ['#######', row`#.\\\ #`, '#######'],
+      ['', '', ''],
+      ['', '     .', ''],
+    ]);
     expect(downhill.get(2, 1).dir).toEqual([-1, 0]);
     expect(downhill.get(2, 1).level).toBeCloseTo(0.5);
     expect(downhill.get(4, 1).level).toBeCloseTo(1.5);
   });
 
   it('counts as slippery, so the ride is the ice ride', () => {
-    const map = makeMap(['#####', row`#'\.#`, '#####']);
+    const map = makeMap([['#####', row`# \.#`, '#####'], ['', ' .', '']]);
     expect(map.isSlippery(2, 1)).toBe(true);
   });
 
   it('carries the player to the bottom in one press', () => {
-    const game = makeGame(['######', row`#'\\.#`, '######']);
-    standOn(game, 1, 1);
+    const game = makeGame([['######', row`# \\.#`, '######'], ['', ' .', '']]);
+    standOn(game, 1, 1, 1);
 
     step(game, 1, 0);
     expect(at(game)).toEqual({ gx: 4, gz: 1 });
     expect(game.player.isSliding).toBe(false);
   });
 
-  it('cannot be climbed', () => {
-    const game = makeGame(['#####', row`#'\@#`, '#####']);
-    expect(step(game, -1, 0)).toBe(false);
+  it('cannot be climbed: the foot of it takes you and gives you straight back', () => {
+    const game = makeGame([['#####', row`# \@#`, '#####'], ['', ' .', '']]);
+    // The step on to the chute is allowed — walking into it is not walking into a
+    // wall — and then the fall undoes it before the player has any say.
+    expect(step(game, -1, 0)).toBe(true);
     expect(at(game)).toEqual({ gx: 3, gz: 1 });
   });
 
+  it('turns the player round as it tips them back off', () => {
+    const game = makeGame([['#####', row`# \@#`, '#####'], ['', ' .', '']]);
+    step(game, -1, 0); // west, on to the chute
+    // Facing east again: the slide put them back the way they came, and the body
+    // followed it rather than staying pointed up the chute.
+    expect(game.player._facing).toBeCloseTo(Math.PI / 2, 1);
+  });
+
+  it('does not carry the player up a longer chute either', () => {
+    // Three tiles of chute: getting on at the foot must buy exactly one of them.
+    const game = makeGame([
+      ['#######', row`# \\\@#`, '#######'],
+      ['', '', ''],
+      ['', ' .', ''],
+    ]);
+    expect(step(game, -1, 0)).toBe(true);
+    expect(at(game)).toEqual({ gx: 5, gz: 1 });
+  });
+
+  it('counts getting on at the foot as a slide, so it is heard as one', () => {
+    const game = makeGame([['#####', row`# \@#`, '#####'], ['', ' .', '']]);
+    const onSlideStart = vi.fn();
+    game.player.onSlideStart = onSlideStart;
+    step(game, -1, 0);
+    expect(onSlideStart).toHaveBeenCalledTimes(1);
+  });
+
   it('cannot be entered from the side', () => {
-    const game = makeGame(['#####', '#.@.#', row`#'\.#`, '#####']);
+    const game = makeGame([
+      ['#####', '#.@.#', row`# \.#`, '#####'],
+      ['', '', ' .', ''],
+    ]);
     expect(step(game, 0, 1)).toBe(false);
   });
 
   it('refuses to exist where it joins nothing', () => {
-    expect(() => makeMap(['#####', row`#@'\#`, '#####'])).toThrow(/joins nothing/);
+    expect(() =>
+      makeMap([['#####', row`#@ \#`, '#####'], ['', '  .', '']]),
+    ).toThrow(/joins nothing/);
   });
 
   it('refuses to exist without floor at the end of its run', () => {
-    expect(() => makeMap(['#####', row`#'\\#`, '#####'])).toThrow(/does not land/);
+    expect(() =>
+      makeMap([['#####', row`# \\#`, '#####'], ['', ' .', '']]),
+    ).toThrow(/does not land/);
   });
 
   it('refuses to be level, since a slide has to go down', () => {
@@ -184,12 +252,17 @@ describe('a chute', () => {
   });
 
   it('refuses to bend', () => {
-    expect(() => makeMap(['#####', row`#'\\#`, row`#.\.#`, '#####'])).toThrow(/bends/);
+    expect(() =>
+      makeMap([
+        ['#####', row`# \\#`, row`#.\.#`, '#####'],
+        ['', ' .', '', ''],
+      ]),
+    ).toThrow(/bends/);
   });
 
   it('hands the player straight onto ice at the bottom', () => {
-    const game = makeGame(['#######', row`#'\ii.#`, '#######']);
-    standOn(game, 1, 1);
+    const game = makeGame([['#######', row`# \ii.#`, '#######'], ['', ' .', '']]);
+    standOn(game, 1, 1, 1);
 
     step(game, 1, 0); // chute, then two tiles of ice, then floor
     expect(at(game)).toEqual({ gx: 5, gz: 1 });
@@ -198,7 +271,7 @@ describe('a chute', () => {
 
 describe('what the camera follows', () => {
   it('rises with the ground and ignores the bob on the way', () => {
-    const game = makeGame(["#####", "#@/'#", '#####']);
+    const game = makeGame([['#####', '#@/ #', '#####'], ['', '   .', '']]);
     expect(game.player.elevation).toBe(0);
 
     game.player.tryMove(1, 0);
@@ -225,18 +298,18 @@ describe('what the camera follows', () => {
 
 describe('patrols and height', () => {
   it('will not take a stair', () => {
-    const map = makeMap(["#####", "#-/'#", '#####']);
+    const map = makeMap([['#####', '#-/ #', '#####'], ['', '   .', '']]);
     expect(map.canPatrol(1, 1, 2, 1)).toBe(false);
     expect(map.isWalkable(2, 1)).toBe(false);
   });
 
   it('will not take a chute either', () => {
-    const map = makeMap(["#####", "#'\\-#", '#####']);
+    const map = makeMap([['#####', '# \\-#', '#####'], ['', ' .', '']]);
     expect(map.isWalkable(2, 1)).toBe(false);
   });
 
   it('stops at a ledge instead of walking up it', () => {
-    const map = makeMap(["#####", "#-.'#", '#####']);
+    const map = makeMap([['#####', '#-. #', '#####'], ['', '   .', '']]);
     expect(map.canPatrol(2, 1, 3, 1)).toBe(false);
   });
 

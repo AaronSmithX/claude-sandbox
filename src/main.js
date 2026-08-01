@@ -211,6 +211,7 @@ function loadStage(stage) {
 
     first.onFirstMove = () => document.body.classList.add('has-moved');
     first.onStep = () => audio.sfx('footstep');
+    first.onBump = () => audio.sfx('bump');
     first.onSlideStart = () => audio.sfx('slide');
     first.onPush = () => audio.sfx('switch');
     // A warp is not a walk: the camera is put where the player now is, rather than

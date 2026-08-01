@@ -51,16 +51,11 @@ const BINDING = /^(\S)\s*=\s*(\S.*?)\s*$/;
 /**
  * Text to stage.
  *
- * The two grid rules are worth stating plainly, because they differ:
- *
- * - The **ground** layer is taken as typed. A short row is a mistake there — every
- *   cell of the ground is something — so it is left short for the parser to complain
- *   about, with the row number and the width it expected.
- * - An **upper** layer is padded with spaces, to the ground's width and its row
- *   count. A space in an upper layer means "nothing here", so a short row is not a
- *   mistake, it is the ordinary case: you type the deck and leave the sky alone.
- *   Requiring trailing spaces on eight blank rows would be busywork with nothing at
- *   the end of it.
+ * Every layer is taken exactly as typed, trailing spaces and all. A short row on an
+ * upper layer is not a mistake — a space up there means "nothing here", so you type
+ * the deck and leave the sky alone — and `TileMap` pads them itself. Padding here as
+ * well would only mean that a stage could not come back out of the editor looking the
+ * way it went in.
  *
  * @param {Draft} draft
  * @returns {ParsedDraft}
@@ -73,8 +68,7 @@ export function parseDraft({ id, name, hint, grid, legend }) {
   const rows = layers[0] ?? [];
   if (rows.length === 0) problems.push('The grid is empty: a stage needs a row of tiles.');
 
-  const width = rows[0]?.length ?? 0;
-  const upper = layers.slice(1).map((layer) => padLayer(layer, rows.length, width));
+  const upper = layers.slice(1);
 
   /** @type {import('../types.js').Legend} */
   const bindings = {};
@@ -252,17 +246,6 @@ function splitLayers(grid) {
     while (layer.length > 0 && layer[layer.length - 1] === '') layer.pop();
   }
   return layers;
-}
-
-/**
- * @param {string[]} layer
- * @param {number} rows
- * @param {number} width
- */
-function padLayer(layer, rows, width) {
-  const padded = layer.map((row) => row.padEnd(width, ' '));
-  while (padded.length < rows) padded.push(' '.repeat(width));
-  return padded;
 }
 
 /**

@@ -174,9 +174,11 @@ describe('a level per mechanic, walked end to end', () => {
   it('climbs to a walkway, and can only reach the star down the chute', () => {
     const game = makeGame(layersOf(WALKWAY));
 
-    // The pen the star sits in has one way in, and it is not at ground level.
+    // The pen the star sits in has one way in, and it is not at ground level: the
+    // chute drops into it off the walkway and cannot be left going back up.
     const map = game.tilemap;
-    expect(map.isConnected(map.get(7, 3), map.get(7, 4))).toBe(false);
+    expect(map.isConnected(map.get(7, 5, 1), map.get(7, 4))).toBe(true);
+    expect(map.isConnected(map.get(7, 4), map.get(7, 5, 1))).toBe(false);
 
     walk(game, [...times(2, EAST), ...times(2, SOUTH)]); // to the foot of the stair
     expect(at(game)).toEqual({ gx: 3, gz: 3 });

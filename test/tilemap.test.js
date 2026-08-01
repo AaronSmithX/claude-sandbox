@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { TileMap, tileDef, KEY_COLORS, SWITCH_COLORS } from '../src/tilemap.js';
+import { TileMap, tileDef, KEY_COLORS, SWITCH_COLORS, LEVEL_RISE } from '../src/tilemap.js';
 import { GLYPHS } from '../src/glyphs.js';
 import { BIG_MAP } from './helpers/stages.js';
 import { Inventory } from '../src/inventory.js';
@@ -596,22 +596,43 @@ describe('what a chute is built from', () => {
   const built = (rows) => new TileMap(rows, { build: true });
 
   /**
-   * Every mesh `buildSlide` made, by the name it gave it, reduced to the four numbers
-   * that decide whether it is above the ice or below it.
+   * Every mesh `buildSlide` made, one tile at a time, reduced to the four numbers that
+   * decide whether a piece is above the ice or below it.
+   *
+   * Per tile rather than per map: `buildSlide` makes one group for each tile of a
+   * chute, and stone belongs under the tile it was built for. A map may hold chutes at
+   * quite different heights — a stage with one on the ground and another two storeys
+   * up is an ordinary stage — and holding the high one's soffit against the low one's
+   * ice would fail it for being where it is supposed to be.
+   *
+   * @returns {Record<string, {y, tilt, halfHeight, halfLength}[]>[]} one per tile
    */
-  function slideParts(map) {
-    /** @type {Record<string, {y: number, tilt: number, halfHeight: number, halfLength: number}[]>} */
-    const parts = {};
-    map.group.traverse((object) => {
-      if (!object.isMesh || !object.name.startsWith('slide-')) return;
-      const { height, depth } = object.geometry.parameters;
-      (parts[object.name] ??= []).push({
-        y: object.getWorldPosition(object.position.clone()).y,
-        tilt: object.rotation.x,
-        halfHeight: height / 2,
-        halfLength: depth / 2,
+  function slideTiles(map) {
+    const tiles = [];
+    for (const group of map.group.children) {
+      /** @type {Record<string, any[]>} */
+      const parts = {};
+      group.traverse((object) => {
+        if (!object.isMesh || !object.name.startsWith('slide-')) return;
+        const { height, depth } = object.geometry.parameters;
+        (parts[object.name] ??= []).push({
+          y: object.getWorldPosition(object.position.clone()).y,
+          tilt: object.rotation.x,
+          halfHeight: height / 2,
+          halfLength: depth / 2,
+        });
       });
-    });
+      if (parts['slide-bed']) tiles.push(parts);
+    }
+    return tiles;
+  }
+
+  /** The same, flattened, for the tests that only count what was built. */
+  function slideParts(map) {
+    const parts = {};
+    for (const tile of slideTiles(map)) {
+      for (const [name, list] of Object.entries(tile)) (parts[name] ??= []).push(...list);
+    }
     return parts;
   }
 
@@ -627,28 +648,32 @@ describe('what a chute is built from', () => {
   const iceUnderAt = (bed, end) =>
     bed.y - end * bed.halfLength * Math.sin(bed.tilt) - bed.halfHeight * Math.cos(bed.tilt);
 
-  /** Nothing made of stone may surface through the bed, at either end. */
-  function expectStoneUnderIce(parts, where) {
-    const bed = parts['slide-bed'];
-    expect(bed, `${where}: no chute was built`).toBeDefined();
-    for (const name of ['slide-soffit', 'slide-plinth']) {
-      for (const part of parts[name] ?? []) {
-        for (const end of [-1, 1]) {
-          // Against the lowest bed on the map, so a multi-tile chute is held to the
-          // tile the stone is actually under and every one below it.
-          const ice = Math.min(...bed.map((b) => iceUnderAt(b, end)));
-          expect(
-            topAt(part, end),
-            `${where}: ${name} surfaces through the ice at the ${end > 0 ? 'downhill' : 'uphill'} end`,
-          ).toBeLessThanOrEqual(ice + 1e-9);
+  /** Nothing made of stone may surface through the ice of the tile it was built for. */
+  function expectStoneUnderIce(map, where) {
+    const tiles = slideTiles(map);
+    expect(tiles.length, `${where}: no chute was built`).toBeGreaterThan(0);
+    for (const parts of tiles) {
+      const [bed] = parts['slide-bed'];
+      for (const name of ['slide-soffit', 'slide-plinth']) {
+        for (const part of parts[name] ?? []) {
+          for (const end of [-1, 1]) {
+            expect(
+              topAt(part, end),
+              `${where}: ${name} surfaces through the ice at the ${end > 0 ? 'downhill' : 'uphill'} end`,
+            ).toBeLessThanOrEqual(iceUnderAt(bed, end) + 1e-9);
+          }
         }
       }
     }
   }
 
   // A one-tile chute from raised ground down to the floor: the shape every chute in
-  // the game is made of.
-  const CHUTE = ['#####', "#@'.#", "#'\\'#", '#...#', '#####'];
+  // the game is made of. The raised ground at either end of it is plain floor on the
+  // storey above, which is the only way a map says height.
+  const CHUTE = [
+    ['#####', '#@ .#', '# \\ #', '#...#', '#####'],
+    ['', '  .', ' . .', '', ''],
+  ];
 
   it('puts an ice bed and two rails on the tile', () => {
     const parts = slideParts(built(CHUTE));
@@ -660,7 +685,7 @@ describe('what a chute is built from', () => {
   it('keeps every piece of stone below the ice, along the whole tile', () => {
     // The regression: `slide-plinth` used to top out at the bed's midpoint height,
     // which is above the ice everywhere past the middle of the tile.
-    expectStoneUnderIce(slideParts(built(CHUTE)), 'a one-tile chute');
+    expectStoneUnderIce(built(CHUTE), 'a one-tile chute');
   });
 
   it('closes the underside with a soffit lying along the bed, not across it', () => {
@@ -681,8 +706,108 @@ describe('what a chute is built from', () => {
 
   it('holds for every chute in the shipped stages', () => {
     for (const stage of STAGES) {
-      const parts = slideParts(new TileMap(stageLayers(stage), { build: true }));
-      if (parts['slide-bed']) expectStoneUnderIce(parts, stage.id);
+      const map = new TileMap(stageLayers(stage), { build: true });
+      if (slideTiles(map).length) expectStoneUnderIce(map, stage.id);
     }
+  });
+});
+
+/**
+ * Which storey a ramp is drawn on, and what a stair is made of.
+ *
+ * A ramp's stonework used to be built from the world floor plane up, however high the
+ * ramp itself was — so a stair between the second floor and the third came out as a
+ * column of masonry through the first, filling a room that had its own ground and its
+ * own business going on in it. A ramp belongs to the storey it starts from.
+ *
+ * A stair goes further than that: it is four slabs floating in the air, with nothing
+ * under them at all.
+ */
+describe('where a ramp is drawn', () => {
+  const row = String.raw;
+  const built = (rows) => new TileMap(rows, { build: true });
+
+  /** Every mesh of one name, as the numbers that say where it is. Nothing is tilted. */
+  function partsOf(map, name) {
+    const parts = [];
+    map.group.traverse((object) => {
+      if (!object.isMesh || object.name !== name) return;
+      const y = object.getWorldPosition(object.position.clone()).y;
+      const { height } = object.geometry.parameters;
+      parts.push({ top: y + height / 2, bottom: y - height / 2, material: object.material });
+    });
+    return parts.sort((a, b) => a.top - b.top);
+  }
+
+  /**
+   * A ramp on the second storey, with a room of plain floor underneath it. The cell it
+   * lands on is a hole in that ground: with floor there as well the ramp's column
+   * would offer two heights at that end and it would refuse to guess.
+   */
+  const upstairs = (glyph) => [
+    ['#####', '#.. #', '#####'],
+    ['', ` .${glyph}`, ''],
+    ['', '   .', ''],
+  ];
+
+  const GROUND_STAIR = [['#####', '#@/ #', '#####'], ['', '   .', '']];
+
+  it('makes a stair out of four steps', () => {
+    expect(partsOf(built(GROUND_STAIR), 'stair-tread')).toHaveLength(4);
+  });
+
+  it('draws every step in the same material', () => {
+    // One step in a lighter grey than the rest reads as a different thing rather
+    // than as the same staircase.
+    const treads = partsOf(built(GROUND_STAIR), 'stair-tread');
+    expect(new Set(treads.map((t) => t.material.uuid)).size).toBe(1);
+  });
+
+  it('floats the steps, and straddles the tile rather than starting at its floor', () => {
+    const treads = partsOf(built(GROUND_STAIR), 'stair-tread');
+    // Nothing reaches down to the floor the stair starts from: they hang in the air.
+    for (const tread of treads) expect(tread.bottom).toBeGreaterThan(0);
+    // And they are slabs, not blocks that grew taller the higher they climbed.
+    const thickness = treads.map((t) => t.top - t.bottom);
+    for (const t of thickness) expect(t).toBeCloseTo(thickness[0]);
+    // Each step is at the height of the climb where it sits along the run, so the
+    // flight clears the low landing by as much as it falls short of the high one.
+    expect(LEVEL_RISE - treads.at(-1).top).toBeCloseTo(treads[0].top);
+  });
+
+  it('stands the player on a step, not in the gap between two', () => {
+    // The clipping bug: the player stood at the flight's mean height, which with an
+    // even number of steps falls on the seam between two of them — so the step just
+    // ahead of the body rose a quarter of a level through the shins.
+    const map = built(GROUND_STAIR);
+    const stair = map.get(2, 1);
+    const stand = map.surfaceOf(stair);
+    const tops = partsOf(map, 'stair-tread').map((t) => t.top);
+
+    expect(tops.some((top) => Math.abs(top - stand) < 1e-9)).toBe(true);
+    // Above the height the camera follows, which is still the middle of the climb.
+    expect(stand).toBeGreaterThan(map.heightOf(stair));
+  });
+
+  it('keeps an upstairs stair out of the room underneath it', () => {
+    const treads = partsOf(built(upstairs('/')), 'stair-tread');
+    expect(treads).toHaveLength(4);
+    // The storey below is the whole band from the ground to LEVEL_RISE, and no part
+    // of a stair on the floor above may be in it.
+    for (const tread of treads) expect(tread.bottom).toBeGreaterThan(LEVEL_RISE);
+    expect(treads.at(-1).top).toBeLessThan(2 * LEVEL_RISE);
+  });
+
+  it('keeps an upstairs chute out of it too', () => {
+    // A chute is still stonework standing on a floor — just not on the bottom one.
+    const [plinth] = partsOf(built(upstairs('\\')), 'slide-plinth');
+    expect(plinth.bottom).toBeGreaterThan(0);
+    expect(plinth.bottom).toBeLessThan(LEVEL_RISE);
+  });
+
+  it('still reaches the ground under a chute that lands there', () => {
+    const ground = [['#####', row`# \.#`, '#####'], ['', ' .', '']];
+    const [plinth] = partsOf(built(ground), 'slide-plinth');
+    expect(plinth.bottom).toBeLessThan(0);
   });
 });

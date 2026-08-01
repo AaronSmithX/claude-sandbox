@@ -44,12 +44,14 @@ describe('parsing layers', () => {
     expect(map.heightOf(map.get(2, 1, 1))).toBe(LEVEL_RISE);
   });
 
-  it('lets a character add its own level on top of the layer it is on', () => {
+  it('gives a tile the level of the layer it is drawn on, however deep the stack', () => {
     const map = makeMap([
       ['####', '#@.#', '####'],
-      ['    ', "  ' ", '    '],
+      ['', '', ''],
+      ['', '  .', ''],
     ]);
-    expect(map.get(2, 1, 1).level).toBe(2);
+    expect(map.get(2, 1, 2).level).toBe(2);
+    expect(map.get(2, 1, 1)).toBe(null); // the storey between them is empty
   });
 
   it('counts every tile on every layer', () => {
@@ -82,13 +84,25 @@ describe('parsing layers', () => {
     expect(step(game, 1, 0)).toBe(false);
   });
 
-  it('rejects a layer that is not the same size as the ground', () => {
-    expect(() => makeMap([['###', '#@#', '###'], ['   ', '   ']])).toThrow(
-      /layer 1 has 2 rows, expected 3/,
+  it('lets an upper layer stop short, since it is mostly sky', () => {
+    // The ground grid says how big the map is. An upper storey with one deck on it is
+    // two characters and a lot of nothing, and typing the nothing out would be
+    // busywork with a row-length error at the end of it.
+    const map = makeMap([['###', '#@#', '###'], ['', ' .']]);
+    expect(map.get(1, 1, 1).level).toBe(1);
+  });
+
+  it('rejects a layer bigger than the ground, which is a real mistake', () => {
+    expect(() => makeMap([['###', '#@#', '###'], ['', '', '', '   ']])).toThrow(
+      /layer 1 has 4 rows, more than the ground's 3/,
     );
-    expect(() => makeMap([['###', '#@#', '###'], ['   ', '  ', '   ']])).toThrow(
-      /expected 3/,
+    expect(() => makeMap([['###', '#@#', '###'], ['', '    ']])).toThrow(
+      /wider than the ground's 3/,
     );
+  });
+
+  it('still holds the ground layer to its own shape', () => {
+    expect(() => makeMap(['###', '#@', '###'])).toThrow(/is 2 characters, expected 3/);
   });
 });
 
@@ -96,10 +110,10 @@ describe('a bridge', () => {
   it('carries the player over the water, with no tube in hand', () => {
     //  landings at level 1, a river between them, and a deck spanning it
     const game = makeGame([
-      ['#####', "#'''#", '#~~~#', "#'''#", '#####'],
-      ['     ', '     ', '  .  ', '     ', '     '],
+      ['#####', '#   #', '#~~~#', '#   #', '#####'],
+      ['', ' ...', '  .', ' ...', ''],
     ]);
-    standOn(game, 2, 1); // on the north landing
+    standOn(game, 2, 1, 1); // on the north landing
 
     expect(step(game, 0, 1)).toBe(true); // onto the deck
     expect(at(game)).toEqual({ gx: 2, gz: 2 });
@@ -108,7 +122,7 @@ describe('a bridge', () => {
 
     expect(step(game, 0, 1)).toBe(true); // and off onto the far landing
     expect(at(game)).toEqual({ gx: 2, gz: 3 });
-    expect(game.player.layer).toBe(0);
+    expect(game.player.layer).toBe(1);
     expect(game.inventory.hasTube).toBe(false);
   });
 
@@ -123,10 +137,10 @@ describe('a bridge', () => {
 
   it('lands on the tile at the height you set out from', () => {
     const map = makeMap([
-      ['#####', "#@'.#", '#.~.#', '#####'],
-      ['     ', '     ', '  .  ', '     '],
+      ['#####', '#@ .#', '#.~.#', '#####'],
+      ['', '  .', '  .', ''],
     ]);
-    const landing = map.get(2, 1); // level 1
+    const landing = map.get(2, 1, 1); // level 1
     const deck = map.get(2, 2, 1); // level 1
     const water = map.get(2, 2); // level 0
 
@@ -151,8 +165,8 @@ describe('a bridge', () => {
     // coordinates and layer. With nothing on the ground beneath it the star used to
     // be walked onto and stood on with the stage never noticing.
     const game = makeGame([
-      ['######', "#@/' #", '######'],
-      ['      ', '    * ', '      '],
+      ['######', '#@/  #', '######'],
+      ['', '   .*', ''],
     ]);
     expect(step(game, 1, 0)).toBe(true); // the stair
     expect(step(game, 1, 0)).toBe(true); // the landing at level 1
@@ -179,8 +193,8 @@ describe('a bridge', () => {
 
 describe('a third layer', () => {
   /**
-   * Nothing caps the stack at two. A layer is a storey, `level` is `layer` plus
-   * whatever the character adds, and every question the game asks — what joins what,
+   * Nothing caps the stack at two. A layer is a storey, a tile's `level` is the layer
+   * it is drawn on, and every question the game asks — what joins what,
    * what you are standing on, what happens when you get there — is asked about a tile
    * rather than about a storey. So the third layer needs no code of its own, and this
    * is the test that says so.
@@ -189,9 +203,9 @@ describe('a third layer', () => {
    * beneath it: the cell holds one tile, and that tile is on layer 2.
    */
   const TOWER = [
-    ['#########', "#@/'/\" ##", '#########'],
-    ['         ', '         ', '         '],
-    ['         ', '      *  ', '         '],
+    ['#########', '#@/ /  ##', '#########'],
+    ['', '   .', ''],
+    ['', '     .*', ''],
   ];
 
   it('puts a tile two storeys up, and finds it there', () => {
@@ -211,6 +225,125 @@ describe('a third layer', () => {
     expect(at(game)).toEqual({ gx: 6, gz: 1 });
     expect(game.player.layer).toBe(2);
     expect(game.inventory.won).toBe(true);
+  });
+});
+
+/**
+ * A ramp reads its ends on its own layer, and looks up and down the column only where
+ * its own layer has nothing to say. That is what lets a stair join two ordinary `.`
+ * tiles a storey apart: the cell it climbs into is a hole on the ground, so the ramp
+ * finds the deck over it. Neither end has to be spelled as raised ground, and neither
+ * end has to be on the ramp's own layer.
+ */
+describe('a ramp between storeys', () => {
+  // String.raw, because a map full of backslashes is unreadable escaped.
+  const row = String.raw;
+
+  it('climbs from plain floor to the plain deck above it', () => {
+    const map = makeMap([
+      ['#####', '#@/ #', '#####'],
+      ['     ', '   . ', '     '],
+    ]);
+    const stair = map.get(2, 1);
+    expect(stair.run).toBe('x');
+    expect(stair.joins).toEqual([0, 1]);
+    expect(stair.up).toEqual([1, 0]); // the deck is the high end
+    expect(map.isConnected(stair, map.get(3, 1, 1))).toBe(true);
+  });
+
+  it('is walked up, and lands the player on the layer above', () => {
+    const game = makeGame([
+      ['#####', '#@/ #', '#####'],
+      ['     ', '   * ', '     '],
+    ]);
+    expect(walk(game, [[1, 0], [1, 0]])).toBe(true);
+    expect(at(game)).toEqual({ gx: 3, gz: 1 });
+    expect(game.player.layer).toBe(1);
+    expect(game.inventory.won).toBe(true);
+  });
+
+  it('falls the same way: a chute off a plain deck onto plain floor', () => {
+    const game = makeGame([
+      ['#######', row`#@/ \.#`, '#######'],
+      ['       ', '   .   ', '       '],
+    ]);
+    const chute = game.tilemap.get(4, 1);
+    expect(chute.dir).toEqual([1, 0]); // downhill, off the deck
+    expect(chute.level).toBeCloseTo(0.5);
+
+    // Up the stair, out onto the deck, and off the end of it in one press.
+    expect(walk(game, [[1, 0], [1, 0]])).toBe(true);
+    expect(game.player.layer).toBe(1);
+    step(game, 1, 0);
+    expect(at(game)).toEqual({ gx: 5, gz: 1 });
+    expect(game.player.layer).toBe(0);
+  });
+
+  it('climbs to the deck even when there is ground under it too', () => {
+    // The cell at the top of the stair holds both the deck and the floor beneath it,
+    // so the stair's own layer answers at both ends and answers level — no ramp at
+    // all. It reads the columns instead, and the deck is the landing.
+    const map = makeMap([['@../..'], ['    .*']]);
+    const stair = map.get(3, 0);
+    expect(stair.joins).toEqual([0, 1]);
+    expect(stair.up).toEqual([1, 0]);
+    expect(map.column(4, 0)).toHaveLength(2); // floor and deck, both real
+  });
+
+  it('walks that map to the star, arriving on the deck and not under it', () => {
+    // The regression the pair above guards: with a ramp joined to *either* of its
+    // ends, climbing arrived on the ground floor under the landing and went nowhere.
+    const game = makeGame([['@../..'], ['    .*']]);
+    expect(walk(game, [[1, 0], [1, 0], [1, 0], [1, 0]])).toBe(true);
+    expect(at(game)).toEqual({ gx: 4, gz: 0 });
+    expect(game.player.layer).toBe(1);
+
+    expect(step(game, 1, 0)).toBe(true);
+    expect(game.inventory.won).toBe(true);
+  });
+
+  it('comes back down the same stair onto the ground', () => {
+    const game = makeGame([['@../..'], ['    ..']]);
+    walk(game, [[1, 0], [1, 0], [1, 0], [1, 0]]);
+    expect(game.player.layer).toBe(1);
+
+    expect(walk(game, [[-1, 0], [-1, 0]])).toBe(true);
+    expect(at(game)).toEqual({ gx: 2, gz: 0 });
+    expect(game.player.layer).toBe(0);
+  });
+
+  it('will not let you on to that stair from the floor under its landing', () => {
+    // The deck is the stair's top. The ground floor in the same cell is a storey
+    // below it and has no business joining the stair at all.
+    const map = makeMap([['@../..'], ['    .*']]);
+    expect(map.isConnected(map.get(4, 0), map.get(3, 0))).toBe(false);
+    expect(map.isConnected(map.get(4, 0, 1), map.get(3, 0))).toBe(true);
+  });
+
+  it('still prefers its own layer at an end that has one', () => {
+    // The foot of this stair is ordinary ground with a second-storey deck floating
+    // over it, so its column offers two heights. The stair takes the one on its own
+    // layer; reading the whole column there would leave it choosing between climbing
+    // to the deck ahead and dropping from the one overhead, and it would refuse.
+    const map = makeMap([
+      ['#####', '#@/ #', '#####'],
+      ['', '   .', ''], // the landing, a storey up
+      ['', ' .', ''], // and something else again, two storeys over the foot
+    ]);
+    expect(map.column(1, 1)).toHaveLength(2);
+    expect(map.get(2, 1).joins).toEqual([0, 1]);
+  });
+
+  it('refuses when the column leaves it a real choice', () => {
+    // Nothing on the stair's own layer at either end, and two storeys standing over
+    // both — so it cannot know which pair is meant, and says so rather than picking.
+    expect(() =>
+      makeMap([
+        ['#####', '# / #', '#####'],
+        ['     ', ' . . ', '     '],
+        ['     ', ' . . ', '     '],
+      ]),
+    ).toThrow(/could join more than one pair of floors/);
   });
 });
 

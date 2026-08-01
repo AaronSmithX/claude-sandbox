@@ -128,9 +128,16 @@ like any other floor; only the player slides.
 
 Floors can sit higher up, **a whole tile per level** — a storey is as tall as a square
 is wide, which is what makes a deck something you can be *under* rather than something
-you wade through. Two tiles at different heights are
-not neighbours: you take a **stair** between them, along the way it runs, or you go
-round. Anything else is a ledge, and a ledge stops you.
+you wade through. A tile's height is said by which grid it is drawn on, so reading the
+grid for a storey tells you the whole of where you can stand on it. Two tiles at
+different heights are not neighbours: you take a **stair** between them, along the way
+it runs, or you go round. Anything else is a ledge, and a ledge stops you.
+
+A stair joins ordinary floor on one storey to ordinary floor on the next, so `.` is the
+only floor character there is. There used to be a `'` that meant "floor, one level up"
+on the grid below, and it read badly both ways round: the walkable space it made never
+appeared on the grid for the storey it belonged to, and it collided with whatever the
+layer above had to say about the same cell.
 
 A **slide** is a chute between two heights. It can only be entered at its top and
 only ridden downhill, and the ride is the ice ride — one press, and you are a
@@ -278,8 +285,9 @@ http://localhost:5173/claude-sandbox/editor.html. The level's text is on the lef
 the level itself is on the right, rebuilt a quarter of a second after you stop typing.
 
 - **The grid box** is one character per tile. A line of `---` starts another layer,
-  ground first, which is how a bridge gets a deck over its water. Upper layers are
-  padded out with spaces for you, so only the deck has to be typed.
+  ground first — which is how a bridge gets a deck over its water, and how every floor
+  above the ground is drawn. An upper layer is mostly sky, so short rows are fine:
+  type the deck and leave the rest, and the parser pads it.
 - **The legend box** binds characters this stage wants for itself, one `k = key:rust`
   per line. `//` starts a comment.
 - **The panel underneath** lists what is wrong. Some of it is the parser — a ragged

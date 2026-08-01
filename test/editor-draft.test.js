@@ -47,15 +47,17 @@ describe('parsing a draft', () => {
     expect(stage.rows[1]).toBe('#@.#');
   });
 
-  it('pads an upper layer out to the ground, so only the deck has to be typed', () => {
+  it('leaves an upper layer exactly as typed, sky and all', () => {
+    // No padding here: `TileMap` treats a short row on an upper layer as sky, and
+    // padding would only stop a stage coming back out of the editor as it went in.
     const { stage } = parseDraft(draft('######\n#@..*#\n######\n---\n\n  ..'));
-    expect(stage.upper).toEqual([['      ', '  ..  ', '      ']]);
+    expect(stage.upper).toEqual([['', '  ..']]);
   });
 
   it('keeps a blank line inside an upper layer, because it is a row of sky', () => {
     // Dropping it would slide the deck one row up the map.
     const { stage } = parseDraft(draft('#####\n#@.*#\n#####\n---\n\n\n ..  '));
-    expect(stage.upper).toEqual([['     ', '     ', ' ..  ']]);
+    expect(stage.upper).toEqual([['', '', ' ..  ']]);
   });
 
   it('says so when there is no grid at all', () => {
@@ -96,8 +98,8 @@ describe('parsing a legend', () => {
 
 describe('round-tripping', () => {
   // Real maps rather than four-character ones, since what breaks a round trip is the
-  // awkward character in the middle of a real row: an apostrophe, a chute's backslash,
-  // a run of spaces on an upper layer that has to survive being trimmed.
+  // awkward character in the middle of a real row: a chute's backslash, or a run of
+  // spaces on an upper layer that has to survive being trimmed.
   for (const fixture of FIXTURES) {
     it(`survives ${fixture.name} going out to text and back`, () => {
       expect(parseDraft(formatDraft(fixture)).stage).toEqual(fixture);
@@ -124,6 +126,8 @@ describe('serializing a stage', () => {
   });
 
   it('quotes a row holding an apostrophe with double quotes, as levels.js does', () => {
+    // No dialect character is an apostrophe any more, but a stage may still bind one
+    // in its legend — and the serializer has to be able to write the row out either way.
     const stage = { id: 'a', name: 'A', hint: 'H', rows: ["#./'~'/.#"] };
     expect(serializeStage(stage)).toContain(`"#./'~'/.#"`);
   });
@@ -251,12 +255,16 @@ describe('the checks the editor shows', () => {
     // The star is drawn on the deck, over ground already at the deck's height. Both
     // are level 1, so a step lands on the floor and the star is never touched — the
     // map reads perfectly and the stage cannot be finished.
+    // Two tiles can only share a height now if a stage says so itself: `floor:N` has
+    // no character in the dialect, so `R` is bound to one here. That is exactly the
+    // mistake worth catching — the map reads perfectly and the stage cannot be won.
     const stacked = {
       id: 'x',
       name: 'X',
       hint: 'H',
-      rows: ['#####', "#@/'#", '#####'],
-      upper: [['     ', '   * ', '     ']],
+      legend: { R: 'floor:1' },
+      rows: ['#####', '#@/R#', '#####'],
+      upper: [['', '   *']],
     };
     const problems = checkStage(stacked)
       .filter((c) => c.problems.length > 0)

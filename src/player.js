@@ -4,6 +4,11 @@ import { buildPlayerRig, HIP_HEIGHT } from './player-rig.js';
 
 const MOVE_DURATION = 0.14; // seconds per tile step
 
+// A step that is refused still takes time on the spot. Longer than a step, so that
+// leaning on a direction against a wall reads as shoving at it rather than as a
+// sprint — and so the bump is heard at a rhythm instead of as a rattle.
+const BUMP_DURATION = 0.24;
+
 // One tile step is half a gait cycle — left leg forward, then right — so the
 // gait advances by exactly PI per step. That matters: sin() is then zero at every
 // step boundary, so the legs are always closed and the body at rest height the
@@ -39,6 +44,8 @@ export class Player {
     this.onSlideStart = null;
     // Fired when a crate is shoved, so that can be heard too.
     this.onPush = null;
+    // Fired when a step is refused and the player walks into the thing in the way.
+    this.onBump = null;
     // Fired after a pad has moved the player, so the camera can stop following and
     // simply be there: a warp is not a walk, and the frame should not sweep the level.
     this.onTeleport = null;
@@ -91,6 +98,8 @@ export class Player {
     // The way the last step went, which is the way a slide carries on.
     this._direction = [0, 1];
     this._sliding = false;
+    // Seconds left of walking into something that will not budge. See `_bump`.
+    this._bumping = 0;
     // True while standing on the pad a pad just delivered us to, so the pair is a
     // trip rather than a loop.
     this._arrivedByPad = false;
@@ -122,6 +131,11 @@ export class Player {
   /** True while ice is carrying the player, when input is ignored. */
   get isSliding() {
     return this._sliding;
+  }
+
+  /** True while the player is walking into something that will not let them past. */
+  get isBumping() {
+    return this._bumping > 0;
   }
 
   /** Standing height on a given tile, which water lowers. */
@@ -176,6 +190,7 @@ export class Player {
     this._t = 0;
     this._hopScale = 1;
     this._sliding = false;
+    this._bumping = 0;
     this._hasMoved = false;
     this._arrivedByPad = false;
     this._held.length = 0;
@@ -201,7 +216,7 @@ export class Player {
    */
   tryMove(dx, dz) {
     if (this._sliding) return;
-    this._beginMove(dx, dz);
+    this._moveOrBump(dx, dz);
   }
 
   /**
@@ -237,7 +252,42 @@ export class Player {
   _continueHeld(carry = 0) {
     const dir = this._held[this._held.length - 1];
     if (!dir) return false;
-    return this._beginMove(dir[0], dir[1], { carry });
+    return this._moveOrBump(dir[0], dir[1], { carry });
+  }
+
+  /**
+   * A step, or the walk into whatever refused it. Every *deliberate* move goes
+   * through here; a slide calls `_beginMove` directly, since a chute running out of
+   * chute is the ride ending rather than the player walking into anything.
+   *
+   * @param {number} dx
+   * @param {number} dz
+   * @param {MoveOptions} [options]
+   * @returns {boolean} whether the step was taken
+   */
+  _moveOrBump(dx, dz, options) {
+    if (this._beginMove(dx, dz, options)) return true;
+    // The refusals that are not the map's: mid-step the walk simply asks again next
+    // tile, and a finished stage is not a wall to walk into.
+    if (this._moving || this.inventory.won || this.inventory.dead) return false;
+    this._bump(dx, dz);
+    return false;
+  }
+
+  /**
+   * Walks into something. The step does not happen, but the intention still shows:
+   * the body comes round to face the way you asked, takes a stride on the spot, and
+   * you hear yourself hit the thing.
+   *
+   * Holding the direction bumps again once this one is done rather than every frame,
+   * so leaning on a wall is a rhythm and not a rattle.
+   */
+  _bump(dx, dz) {
+    if (this._bumping > 0) return;
+    this._bumping = BUMP_DURATION;
+    this._gaitBase = this._gait;
+    this._facingTarget = Math.atan2(dx, dz);
+    this.onBump?.();
   }
 
   /**
@@ -304,6 +354,9 @@ export class Player {
     this._hopScale = this._wading(from) || this._wading(to) ? 0.25 : 1;
     this._t = carry;
     this._moving = true;
+    // Whatever was in the way has moved, or we are going somewhere else: either way
+    // there is nothing left to shove at.
+    this._bumping = 0;
     this._direction = [dx, dz];
     // The gait is measured from here, so it advances exactly half a cycle over
     // the step no matter how the frames fall.
@@ -337,7 +390,8 @@ export class Player {
     if (!this._moving && !this._sliding) this._continueHeld();
 
     if (!this._moving) {
-      this._relax(dt);
+      if (this._bumping > 0) this._strideInPlace(dt);
+      else this._relax(dt);
       this._applyPose();
       // Ground can move: an elevator carries whoever is standing on it, so the
       // mesh is put back on its tile every frame rather than only when a step ends.
@@ -425,9 +479,13 @@ export class Player {
    * something is in the way. Off the ice, a direction still held down carries you
    * on the same way — both hand the overshoot to the next tile, so a walk and a
    * slide are equally free of a hitch at the tile edges.
+   *
+   * A chute is the one thing that overrules the way you were going: it falls the way
+   * it falls. Step on to the foot of one and it turns you round and puts you back
+   * where you came from, which is the whole of what "you cannot climb a slide" means.
    */
   _settleOrSlide(carry) {
-    const [dx, dz] = this._direction;
+    const [dx, dz] = this.tilemap.slideDirection(this.tile) ?? this._direction;
     const canGoOn =
       this.tilemap.isSlipperyTile(this.tile) &&
       !this.inventory.won &&
@@ -455,6 +513,19 @@ export class Player {
       Math.PI;
     this._facing += delta * (1 - Math.pow(TURN_REMAINDER, dt / TURN_SECONDS));
     this.body.rotation.y = this._facing;
+  }
+
+  /**
+   * The walk cycle of a step that never left the tile. Driven from what is left of
+   * the bump rather than from elapsed time, for the reason a step's gait is: it
+   * lands on exactly half a cycle, so the legs close as the shove ends however the
+   * frames happened to fall.
+   */
+  _strideInPlace(dt) {
+    this._bumping = Math.max(0, this._bumping - dt);
+    const t = 1 - this._bumping / BUMP_DURATION;
+    this._gait = this._gaitBase + GAIT_PER_STEP * t;
+    this._blend = Math.min(1, this._blend + dt * BLEND_IN);
   }
 
   /** Eases out of the walk cycle when standing still. */

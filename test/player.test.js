@@ -311,3 +311,144 @@ describe('wading', () => {
     expect(game.player.mesh.position.y).toBeCloseTo(resting);
   });
 });
+
+/**
+ * A step that cannot be taken is still a thing the player asked for, and a level
+ * that answers it with nothing at all feels broken rather than solid. So the
+ * intention shows: the body turns, takes a stride on the spot, and is heard hitting
+ * whatever it is. What must *not* change is where the player is.
+ */
+describe('bumping into what will not move', () => {
+  const CELL = ['###', '#@#', '###'];
+
+  it('sounds the bump when a step is refused', () => {
+    const game = makeGame(CELL);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    game.player.tryMove(1, 0);
+    expect(onBump).toHaveBeenCalledTimes(1);
+  });
+
+  it('still goes nowhere', () => {
+    const game = makeGame(CELL);
+    const { x, z } = game.player.mesh.position;
+
+    expect(step(game, 1, 0)).toBe(false);
+    expect(at(game)).toEqual({ gx: 1, gz: 1 });
+
+    game.player.tryMove(1, 0);
+    advance(game, 0.12); // mid-shove, which is when a stray tween would show
+    expect(game.player.mesh.position.x).toBeCloseTo(x);
+    expect(game.player.mesh.position.z).toBeCloseTo(z);
+  });
+
+  it('turns to face the thing in the way', () => {
+    const game = makeGame(CELL);
+    game.player.tryMove(1, 0); // east, into the wall
+    advance(game, 0.2);
+    expect(game.player._facing).toBeCloseTo(Math.PI / 2, 1);
+  });
+
+  it('takes a stride on the spot, and closes the legs when it is done', () => {
+    const game = makeGame(CELL);
+    const { legL, legR } = game.player.parts;
+
+    game.player.tryMove(1, 0);
+    advance(game, 0.12); // half way through the shove
+    expect(Math.abs(legL.rotation.x)).toBeGreaterThan(0.1);
+    expect(legR.rotation.x).toBeCloseTo(-legL.rotation.x);
+
+    advance(game, 0.5);
+    expect(game.player.isBumping).toBe(false);
+    expect(Math.abs(legL.rotation.x)).toBeLessThan(0.01);
+  });
+
+  it('is one shove, not one per frame', () => {
+    const game = makeGame(CELL);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    game.player.press(1, 0);
+    advance(game, 0.2); // a dozen frames, all inside the first shove
+    expect(onBump).toHaveBeenCalledTimes(1);
+  });
+
+  it('shoves again, at a walking rhythm, while the direction is held', () => {
+    const game = makeGame(CELL);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    game.player.press(1, 0);
+    advance(game, 0.6);
+    // Leaning on a wall for six tenths of a second is a few shoves, not forty.
+    expect(onBump.mock.calls.length).toBeGreaterThan(1);
+    expect(onBump.mock.calls.length).toBeLessThan(6);
+  });
+
+  it('says nothing when the step actually happens', () => {
+    const game = makeGame(['####', '#@.#', '####']);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    step(game, 1, 0);
+    expect(onBump).not.toHaveBeenCalled();
+  });
+
+  it('gives up the shove the moment there is somewhere to go', () => {
+    // A held direction that was refused must not keep walking on the spot once the
+    // way opens: pressing the switch retracts the columns, and the walk resumes.
+    const game = makeGame(['#####', '#@X.#', '#1..#', '#####']);
+    game.player.press(1, 0);
+    advance(game, 0.2);
+    expect(game.player.isBumping).toBe(true);
+    expect(at(game)).toEqual({ gx: 1, gz: 1 });
+
+    game.tilemap.pressSwitch(game.tilemap.get(1, 2)); // the columns drop
+    advance(game, 0.2);
+    expect(game.player.isBumping).toBe(false);
+    expect(game.player.gx).toBeGreaterThan(1);
+  });
+
+  it('is silent about a direction pressed mid-step', () => {
+    // Being busy is not being blocked: the walk asks again when the tile lands.
+    const game = makeGame(['#####', '#@..#', '#####']);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    game.player.tryMove(1, 0);
+    advance(game, FRAME);
+    game.player.tryMove(1, 0);
+    expect(onBump).not.toHaveBeenCalled();
+  });
+
+  it('has nothing to say once the stage is over', () => {
+    const game = makeGame(['####', '#@*#', '####']);
+    step(game, 1, 0);
+    expect(game.inventory.won).toBe(true);
+
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    game.player.tryMove(1, 0);
+    expect(onBump).not.toHaveBeenCalled();
+  });
+
+  it('bumps against a locked door, which is an obstacle like any other', () => {
+    const game = makeGame(['####', '#@G#', '####']);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    expect(step(game, 1, 0)).toBe(false);
+    expect(onBump).toHaveBeenCalledTimes(1);
+  });
+
+  it('bumps against a crate with nowhere to be shoved', () => {
+    const game = makeGame(['####', '#@B#', '####']);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    expect(step(game, 1, 0)).toBe(false);
+    expect(onBump).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not bump when the crate does move', () => {
+    const game = makeGame(['#####', '#@B.#', '#####']);
+    const onBump = vi.fn();
+    game.player.onBump = onBump;
+    expect(step(game, 1, 0)).toBe(true);
+    expect(onBump).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,22 @@
+# Walking into something that will not move: a dull knock with a scuff of boot
+# under it. Like the footstep it stands in for, this repeats for as long as a
+# direction is held against a wall — so it has to be short, soft, and low enough
+# not to nag.
+
+tempo 240
+loop off
+
+# The knock. Low and damped: a body meeting stone, not a drum.
+track knock
+  voice triangle
+  gain 0.14
+  octave 2
+  env 0.002 0.05 0.0 0.05
+  f1/32
+
+# The foot that did not get anywhere, half a tick behind the knock.
+track scuff
+  voice noise
+  gain 0.04
+  env 0.004 0.04 0.0 0.03
+  -/32 x/32

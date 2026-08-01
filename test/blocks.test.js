@@ -57,7 +57,7 @@ describe('a crate', () => {
   });
 
   it('cannot be pushed onto a ramp or a platform', () => {
-    const stair = makeGame(["######", "#@B/'#", '######']);
+    const stair = makeGame([['######', '#@B/ #', '######'], ['', '    .', '']]);
     expect(step(stair, 1, 0)).toBe(false);
 
     const lift = makeGame([
