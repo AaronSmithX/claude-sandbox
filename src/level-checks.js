@@ -17,11 +17,19 @@ import { reachableFrom, sealedIn, tileKey, tilesOfType } from './reach.js';
  * on every keystroke. One copy means the editor cannot bless a level the suite will
  * later reject.
  *
+ * A check is one of two kinds. Most are errors: the stage cannot be finished, and CI
+ * says so. A few are warnings — things that are usually a mistake but that an author
+ * may mean, like handing out fewer keys than there are doors so that which door you
+ * open is the puzzle. Those are worth saying in the editor and not worth failing a
+ * build over, so they are marked here rather than left out.
+ *
  * @typedef {object} Check
  * @property {string} label what the stage is being asked, phrased so it reads as a
  *   test name: "can be walked from the spawn to the star".
  * @property {string[]} problems empty when the stage passes; otherwise one sentence
  *   per offending tile, naming where it is.
+ * @property {'error' | 'warning'} [severity] how much a problem here matters;
+ *   an error, and so a failed build, when absent.
  */
 
 /**
@@ -100,8 +108,12 @@ export function checkStage(stage) {
       .map((star) => `the star at ${star.gx},${star.gz} is walled off from the spawn`),
   });
 
+  // A warning, not an error: a stage can hold back a key deliberately, so that the
+  // question is which door to spend it on. Doors outnumbering keys is still worth
+  // saying, since the usual reason for it is a key that was never drawn.
   checks.push({
     label: 'has a key somewhere for every door',
+    severity: 'warning',
     problems: Object.keys(KEY_COLORS).flatMap((color) => {
       const doors = tilesOfType(map, 'door').filter((t) => t.color === color);
       const keys = tilesOfType(map, 'key').filter((t) => t.color === color);

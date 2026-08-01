@@ -150,15 +150,15 @@ function paint(problems, checks) {
   const list = document.createElement('ul');
 
   for (const problem of problems) {
-    list.append(item(problem, true));
+    list.append(item(problem, 'error'));
   }
   for (const check of checks) {
     if (check.problems.length === 0) {
-      list.append(item(check.label, false));
+      list.append(item(check.label, 'ok'));
       continue;
     }
     for (const problem of check.problems) {
-      list.append(item(problem, true, check.label));
+      list.append(item(problem, check.severity ?? 'error', check.label));
     }
   }
 
@@ -167,14 +167,16 @@ function paint(problems, checks) {
 
 /**
  * @param {string} text
- * @param {boolean} bad
+ * @param {'ok' | 'warning' | 'error'} tone a warning is still shown in the panel and
+ *   still marked, just not in the colour that means the stage is broken.
  * @param {string} [label] the check this came from, when the sentence alone does not
  *   say — "the star at 7,5 is walled off" needs no heading, "no star" reads better
  *   under one.
  */
-function item(text, bad, label) {
+function item(text, tone, label) {
   const li = document.createElement('li');
-  li.classList.toggle('is-bad', bad);
+  li.classList.toggle('is-bad', tone === 'error');
+  li.classList.toggle('is-warn', tone === 'warning');
   if (label) {
     const heading = document.createElement('span');
     heading.className = 'label';
@@ -255,7 +257,11 @@ need('save').addEventListener('click', async () => {
     say(`That map will not parse: ${checks[0].problems[0]}`);
     return;
   }
-  const unfinished = checks.some((check) => check.problems.length > 0);
+  // Warnings are not counted here: a stage that means to run short of keys would
+  // otherwise be told it is unfinished every time it was saved.
+  const unfinished = checks.some(
+    (check) => check.problems.length > 0 && check.severity !== 'warning',
+  );
 
   try {
     const response = await fetch('/__stage', {

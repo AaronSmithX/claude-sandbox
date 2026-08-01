@@ -21,6 +21,7 @@
         --dim: #8b9ac4;
         --accent: #78d0ff;
         --bad: #ff8080;
+        --warn: #ffc86b;
         --good: #7ee0a0;
       }
       * {
@@ -167,6 +168,13 @@
       }
       #problems li.is-bad {
         color: var(--bad);
+      }
+      #problems li.is-warn::before {
+        content: '!';
+        color: var(--warn);
+      }
+      #problems li.is-warn {
+        color: var(--warn);
       }
       #problems .label {
         color: var(--dim);

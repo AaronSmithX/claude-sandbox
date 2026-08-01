@@ -275,6 +275,24 @@ describe('the checks the editor shows', () => {
     );
   });
 
+  it('warns about a door with no key rather than calling the stage broken', () => {
+    // Two gold doors and one gold key is a stage that asks which door to open, so this
+    // is said and not counted against the build. `#G#` gives each door its wall to span.
+    const short = failing(['#####', '#@.g#', '#G#G#', '#..*#', '#####']);
+    expect(short.map((c) => c.label)).toEqual(['has a key somewhere for every door']);
+    expect(short[0].severity).toBe('warning');
+    expect(short[0].problems).toEqual(['2 gold door(s) but 1 gold key(s)']);
+  });
+
+  it('leaves every other check an error', () => {
+    // The severity is a marking on one check, not a softening of the rest: nothing else
+    // may quietly stop failing CI by acquiring it.
+    const warnings = checkStage(stage(['#####', '#@..#', '#..*#', '#####']))
+      .filter((c) => c.severity === 'warning')
+      .map((c) => c.label);
+    expect(warnings).toEqual(['has a key somewhere for every door']);
+  });
+
   it('reports a gate with no plate to hold it', () => {
     const problems = failing(['#####', '#@.*#', '#P###', '#...#', '#####']).flatMap(
       (c) => c.problems,
