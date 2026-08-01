@@ -706,7 +706,11 @@ describe('what a chute is built from', () => {
 
   it('holds for every chute in the shipped stages', () => {
     for (const stage of STAGES) {
-      const map = new TileMap(stageLayers(stage), { build: true });
+      // A stage's own legend has to come with it. Every shipped stage used to get by
+      // on the default dialect alone, so leaving it out went unnoticed until one
+      // arrived that binds characters of its own — at which point this stopped being
+      // a test about chutes and became one about parsing.
+      const map = new TileMap(stageLayers(stage), { build: true, legend: stage.legend });
       if (slideTiles(map).length) expectStoneUnderIce(map, stage.id);
     }
   });
@@ -809,5 +813,121 @@ describe('where a ramp is drawn', () => {
     const ground = [['#####', row`# \.#`, '#####'], ['', ' .', '']];
     const [plinth] = partsOf(built(ground), 'slide-plinth');
     expect(plinth.bottom).toBeLessThan(0);
+  });
+});
+
+describe('looks', () => {
+  const built = (rows, legend) => new TileMap(rows, { build: true, legend });
+
+  /** Every mesh of one name, in the order the map laid them down. */
+  const meshes = (map, name) => {
+    const found = [];
+    map.group.traverse((o) => {
+      if (o.isMesh && o.name === name) found.push(o);
+    });
+    return found;
+  };
+
+  const ROCKS = ['#####', '#@..X', '#####'];
+  const ROCK = { X: 'wall:rock' };
+
+  it('leaves a rock as much a wall as a grey block is', () => {
+    // The whole claim of this design, on the rules side: nothing that decides what a
+    // player may do gets to see how the tile is drawn.
+    const map = makeMap(ROCKS, { legend: ROCK });
+    expect(map.get(4, 1).type).toBe('wall');
+    expect(map.isWalkable(4, 1)).toBe(false);
+    expect(map.canEnter(4, 1, new Inventory())).toBe(false);
+  });
+
+  it('changes the mesh and nothing else', () => {
+    // And the same claim on the drawing side: the material differs, the rule doesn't.
+    const grey = built(['#####', '#@..#', '#####']);
+    const rock = built(ROCKS, ROCK);
+    const materialOf = (map, gx) =>
+      meshes(map, 'wall').find((m) => Math.abs(m.position.x - map.gridToWorld(gx, 1).x) < 0.01)
+        .material;
+
+    expect(materialOf(rock, 4).uuid).not.toBe(materialOf(grey, 4).uuid);
+    expect(rock.isWalkable(4, 1)).toBe(grey.isWalkable(4, 1));
+  });
+
+  it('draws every wall of one look in the same material', () => {
+    // Same reason the stair treads share one: two greys among the same rocks read as
+    // two different things rather than as one rock face.
+    const map = built(['#####', 'X@..X', 'XXXXX'], ROCK);
+    const rocks = meshes(map, 'wall').filter((m) => m.material.color.getHex() !== 0x5a6270);
+    expect(rocks.length).toBeGreaterThan(1);
+    expect(new Set(rocks.map((m) => m.material.uuid)).size).toBeLessThanOrEqual(3);
+  });
+
+  it('shares one geometry per look and height, and does not share across looks', () => {
+    const map = built(['#####', 'X@..#', '#####'], ROCK);
+    const at = (gx, gz) => {
+      const w = map.gridToWorld(gx, gz);
+      return meshes(map, 'wall').find(
+        (m) => Math.abs(m.position.x - w.x) < 0.01 && Math.abs(m.position.z - w.z) < 0.01,
+      );
+    };
+    const rock = at(0, 1);
+    const grey = at(4, 1);
+    // Same height, different look: the cache key has to carry both or one of these
+    // would arrive wearing the other's baked-in UVs once textures exist.
+    expect(rock.geometry.parameters.height).toBeCloseTo(grey.geometry.parameters.height);
+    expect(rock.geometry.uuid).not.toBe(grey.geometry.uuid);
+    // ...while two walls that match in both share one, which is what the cache is for.
+    expect(at(1, 0).geometry.uuid).toBe(at(2, 0).geometry.uuid);
+  });
+
+  it('picks the ground under a tile independently of what stands on it', () => {
+    // The other half of what was asked for: a switch on stone, with grass beside it.
+    const map = built(['#####', '#@.S#', '#####'], {
+      S: { type: 'switch', color: 'red', ground: 'stone' },
+    });
+    const groundAt = (gx) =>
+      meshes(map, 'ground').find(
+        (m) => Math.abs(m.position.x - map.gridToWorld(gx, 1).x) < 0.01,
+      ).material;
+
+    expect(groundAt(3).color.getHex()).toBe(0x4a5361);
+    expect(groundAt(3).uuid).not.toBe(groundAt(2).uuid);
+    // And it is still a working switch, not a decorated floor.
+    expect(map.get(3, 1).button).toBeTruthy();
+  });
+
+  it('keeps raised ground a plinth when it is given a look', () => {
+    // Raised ground on the bottom layer is a plinth with sides, not a floating slab,
+    // and the geometry cache now keys on the look as well as the height. Getting that
+    // key wrong would hand a one-level plinth the flat floor's geometry.
+    const map = built(['####', '#@^#', '####'], { '^': { type: 'floor', level: 1, ground: 'flagstone' } });
+    const w = map.gridToWorld(2, 1);
+    const plinth = meshes(map, 'ground').find((m) => Math.abs(m.position.x - w.x) < 0.01);
+    expect(plinth.geometry.parameters.height).toBeCloseTo(0.2 + LEVEL_RISE);
+    // One of flagstone's two squares — which one depends on where it sits, which is
+    // the checkerboard doing its job rather than the look being ignored.
+    expect([0x5b6068, 0x646a73]).toContain(plinth.material.color.getHex());
+  });
+
+  it('leaves ice slippery when its ground is overridden', () => {
+    // Ice's rules are its type. Repainting the slab underneath must not touch them.
+    const map = built(['#####', '#@.I#', '#####'], {
+      I: { type: 'ice', ground: 'stone' },
+    });
+    expect(map.isSlippery(3, 1)).toBe(true);
+    expect(map._ice).not.toBe(null);
+  });
+
+  it('still checkerboards a plain floor', () => {
+    // Not decoration: alternating squares are how a player counts three tiles to a
+    // door. A scattered floor would look richer and play worse.
+    const map = built(['####', '#@.#', '#..#', '####']);
+    const groundAt = (gx, gz) =>
+      meshes(map, 'ground').find((m) => {
+        const w = map.gridToWorld(gx, gz);
+        return Math.abs(m.position.x - w.x) < 0.01 && Math.abs(m.position.z - w.z) < 0.01;
+      }).material;
+
+    expect(groundAt(1, 1).uuid).not.toBe(groundAt(2, 1).uuid);
+    expect(groundAt(1, 1).uuid).toBe(groundAt(2, 2).uuid);
   });
 });

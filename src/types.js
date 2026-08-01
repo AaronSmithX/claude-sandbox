@@ -30,6 +30,14 @@
  *
  * @property {string} [color]   which key, door, switch or obstacle this is
  * @property {string} [group]   'A' or 'B', for obstacles of one colour
+ *
+ * Appearance, and nothing else. Both name a look in `src/looks.js`, and no rule
+ * anywhere reads either: a wall drawn as a rock blocks you exactly as a wall does,
+ * which is the point of them being separate from `type`.
+ * @property {string} [look]    how this tile's own body is drawn
+ * @property {string} [ground]  how the slab beneath it is drawn, chosen independently
+ *   of whatever stands on it
+ *
  * @property {string} [enemy]   patrol pattern, when the tile is a spawn for one
  * @property {boolean} [startPressed]  a switch that begins held down
  * @property {boolean} [startUp]       a platform that begins at the top

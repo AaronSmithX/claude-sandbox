@@ -401,6 +401,49 @@ const KEYS = {
   ],
 };
 
+/**
+ * Nothing new to learn: a crate, a plate and a gate, which the campaign taught long
+ * before here. What is new is that none of it looks the way it used to.
+ *
+ * Every character below binds to a tile the game already had, wearing an appearance
+ * chosen separately — rock and brick and trees are all `wall`, sand and flagstone are
+ * both `floor`, and the crate and the plate keep their rules while standing on ground
+ * of their own. So this stage is also the test of the claim: if any of it plays
+ * differently from the plain version, the split has leaked.
+ *
+ * @type {Stage}
+ */
+const THE_OLD_COURTYARD = {
+  id: 'the-old-courtyard',
+  name: 'The Old Courtyard',
+  hint: 'A <b>crate</b> on a <b>plate</b> holds a gate open. The trees are just walls.',
+  rows: [
+    '#############',
+    '#@..;;;K,,,,#',
+    '#.;;;;;K,,,,#',
+    '#;;T;;;P,,,,#',
+    '#;;;;;;K,,*,#',
+    '#;;B;p;K,,,,#',
+    '#;;;;;;K,,,,#',
+    '#;;;T;;K,,R,#',
+    '#############',
+  ],
+  legend: {
+    // Three walls that block you identically and read as three different things.
+    R: 'wall:rock',
+    K: 'wall:brick',
+    T: 'wall:tree',
+    // Two floors that are the same floor.
+    ';': 'floor:sand',
+    ',': 'floor:flagstone',
+    // And the half of it that a name cannot say, because the appearance is riding on
+    // a tile whose variant slot is spoken for: a crate standing on sand, and a
+    // pressure plate set into stone.
+    B: { type: 'floor', block: true, ground: 'sand' },
+    p: { type: 'plate', color: 'red', ground: 'stone' },
+  },
+};
+
 /** Every stage, in play order. @type {Stage[]} */
 export const STAGES = [
   FIRST_STEPS,
@@ -413,6 +456,7 @@ export const STAGES = [
   TWO_PLACES,
   THREE_STOREYS,
   KEYS,
+  THE_OLD_COURTYARD,
   THE_GAUNTLET,
 ];
 

@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { disposeTree } from './dispose.js';
 import { GLYPHS } from './glyphs.js';
+import { LOOKS, lookOf, variantOf } from './looks.js';
+import { applyTexture, tileBoxUVs } from './textures.js';
+import { Billboards } from './billboards.js';
 import { WaterSurface } from './water.js';
 import { IceShimmer } from './ice.js';
 
@@ -133,6 +136,20 @@ for (const color of Object.keys(SWITCH_COLORS)) {
 
 for (const color of Object.keys(PAD_COLORS)) {
   LEGEND[`pad:${color}`] = { type: 'pad', color };
+}
+
+// Appearance, in the variant slot, for the two types where that slot is free. A wall
+// is the thing that blocks you and a floor is the thing you stand on; which one of
+// several a given wall or floor *is* comes down to how it looks, and nothing else, so
+// the slot means here exactly what it means in `key:gold` — which one.
+//
+// Only these two. The name grammar is two levels deep and the coloured families have
+// already spent their variant on the colour, so appearance for a `key:gold` is said
+// with an inline def rather than by growing the grammar a third level.
+for (const [name, look] of Object.entries(LOOKS)) {
+  if (look.internal) continue;
+  if (look.shape === 'slab') LEGEND[`floor:${name}`] = { type: 'floor', ground: name };
+  else LEGEND[`wall:${name}`] = { type: 'wall', look: name };
 }
 
 /** A raised floor, `floor:1` and up. The one name with a number in it rather than a list. */
@@ -300,6 +317,12 @@ export class TileMap {
     this._water = null;
     /** @type {?IceShimmer} */
     this._ice = null;
+    /** @type {?Billboards} */
+    this._billboards = null;
+    // Which way the camera looks, for anything drawn as a flat card. Zero is right for
+    // the game, whose camera is aimed once and then frozen; the editor's preview
+    // orbits and says so every frame.
+    this._viewYaw = 0;
 
     this._parse();
     if (build) this._build();
@@ -431,6 +454,16 @@ export class TileMap {
       const def = typeof entry === 'string' ? tileDef(entry) : entry;
       if (!def) {
         throw new Error(`Legend binds "${char}" to "${entry}", which is not a tile`);
+      }
+      // A name resolves or it doesn't, but a def written out in full is whatever was
+      // typed — and a misspelt look in one would otherwise draw the default without
+      // complaint, which is the quietest kind of wrong. Checked in the same breath as
+      // the name, for the same reason.
+      for (const field of ['look', 'ground']) {
+        const name = def[field];
+        if (name !== undefined && !lookOf(name)) {
+          throw new Error(`Legend binds "${char}" to ${field} "${name}", which is not a look`);
+        }
       }
       defs[char] = def;
     }
@@ -1259,6 +1292,24 @@ export class TileMap {
     return partner;
   }
 
+  /**
+   * Says which way the camera is looking, so anything drawn as a flat card can turn to
+   * face it.
+   *
+   * Pushed in rather than read, because the only thing that calls `update` is
+   * `tickWorld`, and that is the rules function the headless tests drive — handing it
+   * a camera would put one in the test helpers for the sake of a decoration. Whoever
+   * owns a camera calls this instead: `src/main.js` once per stage, since the game's
+   * camera is aimed once and frozen, and `src/editor/preview.js` every frame, since
+   * its preview genuinely orbits.
+   *
+   * @param {number} yaw radians about Y — see `cameraYaw` in `src/billboards.js`
+   */
+  setViewYaw(yaw) {
+    this._viewYaw = yaw;
+    this._billboards?.setYaw(yaw);
+  }
+
   /** Restores the level to its authored state, for a retry. */
   reset() {
     this._resetState();
@@ -1282,6 +1333,7 @@ export class TileMap {
     // rules read, so nothing below depends on having run them.
     this._water?.update(dt);
     this._ice?.update(dt);
+    this._billboards?.update(dt);
 
     const k = 1 - Math.pow(0.002, dt); // exponential smoothing factor
     // Doors get a faster factor: the panel has one 0.14s step to clear the
@@ -1390,50 +1442,129 @@ export class TileMap {
   // --- Mesh construction ----------------------------------------------------
 
   _build() {
-    const floorGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.2, TILE_SIZE * 0.98);
-
-    // One wall geometry per distinct height, shared by every wall that tall.
-    const wallGeos = new Map();
-    const wallGeoFor = (height) => {
-      if (!wallGeos.has(height)) {
-        wallGeos.set(height, new THREE.BoxGeometry(TILE_SIZE, height, TILE_SIZE));
+    // Everything shared across this map's meshes, in one cache. Geometries are keyed
+    // by look as well as by size because a look may bake its own UVs, and materials by
+    // look and tint because a look may wear more than one — see `src/looks.js`. One
+    // cache rather than one per kind so that all of it is built here, inside `_build`,
+    // and so all of it is reached by the single `disposeTree` walk in `dispose()`.
+    //
+    // Per-map, never module-level: `disposeTree` guards against disposing one thing
+    // twice within a call, not across calls, so a material shared between two TileMaps
+    // would be disposed once when the first stage unloads and again when the second
+    // does.
+    /** @type {Map<string, any>} */
+    const parts = new Map();
+    const cached = (key, make) => {
+      let part = parts.get(key);
+      if (part === undefined) {
+        part = make();
+        parts.set(key, part);
       }
-      return wallGeos.get(height);
+      return part;
     };
+
+    /**
+     * The look of that name, or a throw. Bindings are validated when the stage loads,
+     * so reaching here with a bad name means something bypassed that — worth saying
+     * loudly rather than quietly drawing the wrong thing.
+     */
+    const mustLook = (name) => {
+      const look = lookOf(name);
+      if (!look) throw new Error(`No look named "${name}"`);
+      return look;
+    };
+
+    /**
+     * The material for a look, as worn at one place on the grid. Shared: every wall of
+     * one look is the same material, which is what makes "one step in a lighter grey
+     * than the rest" impossible to draw by accident.
+     *
+     * Never hand one of these to anything that animates its own colour —
+     * `update()` mutates a switch button's `material.color` in place, which is why
+     * `_litMaterial` deliberately returns a fresh material every call.
+     */
+    const lookMat = (name, gx = 0, gz = 0) => {
+      const look = mustLook(name);
+      const color = variantOf(look, gx, gz);
+      return cached(`mat|${name}|${color}`, () => {
+        const material = new THREE.MeshStandardMaterial({
+          color,
+          roughness: look.roughness ?? 1,
+          metalness: look.metalness ?? 0,
+          ...(look.emissive === undefined ? {} : { emissive: look.emissive }),
+        });
+        // Adds a map if there is one to add and a DOM to load it with. The colour
+        // above is what shows until then, and all there ever is headlessly.
+        applyTexture(material, look.texture);
+        return material;
+      });
+    };
+
+    const floorGeo = tileBoxUVs(
+      new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.2, TILE_SIZE * 0.98),
+      TILE_SIZE * 0.98,
+      0.2,
+      TILE_SIZE * 0.98,
+    );
     const waterGeo = new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98);
 
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x2f5d3a, roughness: 0.9 });
-    const floorMatAlt = new THREE.MeshStandardMaterial({ color: 0x356a42, roughness: 0.9 });
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a6270, roughness: 0.8 });
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x2b6fb0,
       roughness: 0.3,
       metalness: 0.1,
     });
-    // Ice reads as ice by being the one bright, glossy thing on the floor: pale,
-    // almost no roughness, and faintly lit so it stands out against the grass.
-    const iceMat = new THREE.MeshStandardMaterial({
-      color: 0xcfe8f5,
-      roughness: 0.06,
-      metalness: 0.35,
-      emissive: 0x24485c,
-    });
-
+    // Ice's slab is the ice look; a chute's bed borrows it, which is what makes a
+    // chute read as the slippery thing it is.
+    const iceMat = lookMat('ice');
     // Stone for the sides of raised ground and the frame of a chute, so height
     // reads as built rather than as grass floating in the air.
-    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x4a5361, roughness: 0.85 });
+    const stoneMat = lookMat('stone');
 
     // Raised ground is a plinth rather than a slab, so a plateau has sides. One
-    // geometry per distinct height, shared by every tile that stands that tall.
-    const plinths = new Map();
-    const plinthGeo = (height) => {
-      if (!plinths.has(height)) {
-        plinths.set(
-          height,
+    // geometry per distinct height and ground, shared by every tile that matches.
+    const plinthGeo = (ground, height) =>
+      cached(`plinth|${ground}|${height}`, () =>
+        tileBoxUVs(
           new THREE.BoxGeometry(TILE_SIZE * 0.98, 0.2 + height, TILE_SIZE * 0.98),
-        );
+          TILE_SIZE * 0.98,
+          0.2 + height,
+          TILE_SIZE * 0.98,
+        ),
+      );
+
+    /**
+     * Lays the slab a tile stands on, and nothing that stands on it.
+     *
+     * Which look it wears is `tile.ground`, independent of what the tile *is* — so a
+     * switch, a crate or a gate can sit on stone while the floor beside it is grass.
+     * The default reproduces what every map had before there was a choice: ice draws
+     * its own surface, everything else is the checkerboarded grass.
+     */
+    const layGround = (tile, world, height) => {
+      const { gx: x, gz: z } = tile;
+      const ground = tile.ground ?? (tile.type === 'ice' ? 'ice' : 'grass');
+      const mat = lookMat(ground, x, z);
+
+      if (tile.layer > 0) {
+        // Anything off the ground is a span on legs. Not solid stone down to the
+        // floor plane: a cell that is a space on the grid below is a space, and
+        // filling it in would deny what the map plainly says — which is the whole
+        // reason height is drawn on the layer it belongs to.
+        const deck = buildDeck(height, mat, stoneMat);
+        deck.name = 'ground';
+        deck.position.set(world.x, 0, world.z);
+        this.group.add(deck);
+        return deck;
       }
-      return plinths.get(height);
+
+      const flat = height === 0;
+      const floor = new THREE.Mesh(flat ? floorGeo : plinthGeo(ground, height), mat);
+      floor.name = 'ground';
+      floor.position.set(world.x, flat ? -0.1 : height - (0.2 + height) / 2, world.z);
+      floor.receiveShadow = true;
+      floor.castShadow = !flat;
+      this.group.add(floor);
+      return floor;
     };
 
     // Water and ice are collected as they are met and animated together
@@ -1443,6 +1574,8 @@ export class TileMap {
     const waterTiles = [];
     /** @type {import('./ice.js').IceTile[]} */
     const iceTiles = [];
+    /** @type {import('./billboards.js').BillboardTile[]} */
+    const billboards = [];
 
     for (const tile of this.allTiles()) {
       const { gx: x, gz: z } = tile;
@@ -1467,17 +1600,31 @@ export class TileMap {
         continue;
       }
 
-      if (tile.type === 'wall') {
+      if (tile.type === 'wall' && mustLook(tile.look ?? 'wall').shape === 'block') {
         // A wall stands above the ground beside it, or a plateau comes out flush with
-        // the wall that is meant to be holding it in.
+        // the wall that is meant to be holding it in. Worked out before the look is
+        // consulted and never from it: how tall a wall stands is the map's business,
+        // and a rock that quietly resized the plateau next to it would be a look
+        // changing the picture somewhere the author did not put one.
+        const name = tile.look ?? 'wall';
         const top = Math.max(WALL_MIN_HEIGHT, this._tallestNeighbour(tile) + WALL_PARAPET);
-        const mesh = new THREE.Mesh(wallGeoFor(top), wallMat);
+        const mesh = new THREE.Mesh(
+          cached(`wall|${name}|${top}`, () =>
+            // Keyed by look as well as height because the UVs are baked in: one brick
+            // per world unit, so a tall wall wears more bricks rather than taller ones.
+            tileBoxUVs(new THREE.BoxGeometry(TILE_SIZE, top, TILE_SIZE), TILE_SIZE, top, TILE_SIZE),
+          ),
+          lookMat(name, x, z),
+        );
+        mesh.name = 'wall';
         mesh.position.set(world.x, top / 2, world.z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.group.add(mesh);
         continue;
       }
+      // A wall drawn as anything else — a tree — falls through to the ground below,
+      // because a thing standing on a tile still needs the tile to stand on.
 
       if (tile.type === 'water') {
         // The slab is the body of the water — what fills the hole and what is
@@ -1508,24 +1655,18 @@ export class TileMap {
       // columns reveals something to stand on rather than a hole. Ice is that
       // ground rather than something on top of it: you glide across the level,
       // not up onto anything.
-      const flat = height === 0;
-      const mat = tile.type === 'ice' ? iceMat : (x + z) % 2 === 0 ? floorMat : floorMatAlt;
       if (tile.type === 'ice') iceTiles.push({ x: world.x, y: height, z: world.z });
 
-      if (tile.layer > 0) {
-        // Anything off the ground is a span on legs. Not solid stone down to the
-        // floor plane: a cell that is a space on the grid below is a space, and
-        // filling it in would deny what the map plainly says — which is the whole
-        // reason height is drawn on the layer it belongs to.
-        const deck = buildDeck(height, mat, stoneMat);
-        deck.position.set(world.x, 0, world.z);
-        this.group.add(deck);
-      } else {
-        const floor = new THREE.Mesh(flat ? floorGeo : plinthGeo(height), mat);
-        floor.position.set(world.x, flat ? -0.1 : height - (0.2 + height) / 2, world.z);
-        floor.receiveShadow = true;
-        floor.castShadow = !flat;
-        this.group.add(floor);
+      layGround(tile, world, height);
+
+      // What the tile is drawn *as*, when that is something standing on the ground
+      // rather than the ground itself. Kept apart from `_buildFeature` below, which is
+      // about mechanism: the door that swings, the button that presses, the bars that
+      // drop. Those hang themselves off the tile for `update` to animate, and a look
+      // has no business in that.
+      const look = tile.look ? mustLook(tile.look) : null;
+      if (look?.shape === 'billboard') {
+        billboards.push({ x: world.x, y: height, z: world.z, look });
       }
 
       const feature = this._buildFeature(tile, world);
@@ -1541,6 +1682,14 @@ export class TileMap {
     if (iceTiles.length) {
       this._ice = new IceShimmer(iceTiles);
       this.group.add(this._ice.group);
+    }
+
+    if (billboards.length) {
+      this._billboards = new Billboards(billboards);
+      // Whoever owns a camera may already have said which way it looks; a map built
+      // after that has to catch up rather than wait for the next change.
+      this._billboards.setYaw(this._viewYaw);
+      this.group.add(this._billboards.group);
     }
   }
 

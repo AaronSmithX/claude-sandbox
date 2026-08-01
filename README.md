@@ -172,6 +172,86 @@ four-second cycle — dwell, rise, dwell, fall. While it is moving it is joined 
 nothing, so you can neither board it nor step off; while it is parked it is simply
 floor at that storey. Standing on one carries you, and the camera goes up with you.
 
+### Looks
+
+What a tile *is* and what it *looks like* are separate. `type` decides everything a
+tile does — whether it blocks you, how tall it stands, what happens when you arrive —
+and two optional fields decide how it is drawn:
+
+| Field | What it picks |
+| --- | --- |
+| `look` | the tile's own body: the block a wall is drawn as, the card a tree is |
+| `ground` | the slab underneath, chosen separately from whatever stands on it |
+
+Both name an entry in `src/looks.js`, and **no rule anywhere reads either**. That is the
+whole point: `src/reach.js` routes around `type === 'wall'` and `src/level-checks.js`
+counts walls to know a door has something to span, and both keep working when a wall is
+drawn as a tree, without either being told that trees exist.
+
+Appearance goes in the variant slot of the name, where that slot is free:
+
+```
+wall:rock   wall:brick   wall:tree
+floor:sand  floor:flagstone  floor:stone  floor:dirt
+```
+
+Only `wall:` and `floor:`. The name grammar is two levels deep and the coloured families
+have already spent their variant on the colour, so appearance for a `key:gold` — or for
+anything that wants a look *and* a ground — is said with a def written out in full:
+
+```js
+legend: {
+  R: 'wall:rock',
+  ';': 'floor:sand',
+  B: { type: 'floor', block: true, ground: 'sand' },   // a crate standing on sand
+  p: { type: 'plate', color: 'red', ground: 'stone' }, // a plate set into stone
+}
+```
+
+`floor:2` is still floor two levels up and `floor:sand` is still sand, because a look's
+name has to start with a letter and so can never be read as a number.
+
+Two things deliberately have no name. `wall` is what a wall is drawn as anyway, so
+`wall:wall` would be a second spelling of something already spelt. And there is no
+`floor:ice`: being slippery is `type: 'ice'`, and a tile that promised a slide and then
+held firm underfoot is exactly the lie this split exists to prevent.
+
+A look may carry `variants`, which are chosen per tile from its coordinates —
+`checker` by default, because a countable grid is how you plan a route three tiles
+ahead, or `scatter` for surfaces meant to read as mottled rather than as tiles.
+
+#### Images
+
+`src/textures/patterns.js` holds the images as SVG source, turned into `data:` URLs at
+import. That is the rule `src/audio/index.js` sets for the music: keep them out of the
+network path entirely, so there is no loading state that can fail and no chance of the
+Pages base path being left off a URL. It also keeps a texture editable — a brick is a
+dozen rectangles in a diff you can read. To use a painted image instead, drop the file
+in and import it; Vite hashes it and rewrites the URL, and that is the whole change.
+
+Textures never load in the test suite, which runs in plain Node with no DOM. Every
+material is built with its look's colour and only ever *gains* a map, so a headless
+build, a slow load and the first frame all show the same correct thing.
+
+A wall's texture repeat is baked into its geometry rather than set on the texture,
+because walls vary in height — they grow to stand above the ground they hold in — and
+`BoxGeometry` lays the same UVs on every face whatever size it is. Doing it on the
+texture would need one texture, and so one material, per height. Materials belong to a
+stage and are disposed with it; textures belong to the page and are never disposed, and
+that only stays safe while nothing makes a texture per material.
+
+#### Trees
+
+`wall:tree` is a flat card that stands on its tile and turns about the upright axis to
+face the viewer. Not a `THREE.Sprite`: a sprite faces the camera on every axis, so under
+this game's overhead camera it would tip backwards until it read as lying on the ground.
+It is cut out with `alphaTest` rather than `transparent`, which keeps it in the opaque
+pass so a wood of them can overlap in any order.
+
+In the game this costs almost nothing — `src/camera-follow.js` aims the camera once and
+freezes it, so the yaw is a constant. The machinery is really for the level editor,
+whose preview orbits.
+
 ### Crates, plates and gates
 
 A crate moves one tile per shove, in the direction you walked, and only if the tile
@@ -453,6 +533,10 @@ site and publishes `dist/` to GitHub Pages.
 | `src/level-select.js` | The level list's rows: padlocks, question marks and stars. |
 | `src/tilemap.js` | One loaded stage: tile meshes, layers, heights and all the level rules. `LEGEND` here is the vocabulary — every kind of tile there is, by name. |
 | `src/glyphs.js` | The default dialect: which character means which tile, before a stage says otherwise. |
+| `src/looks.js` | The appearance axis: what a tile is *drawn* as, which no rule reads. |
+| `src/textures.js` | Turning an image into something a material can wear, and doing nothing at all headlessly. |
+| `src/textures/patterns.js` | The images, written out as SVG rather than drawn. |
+| `src/billboards.js` | Flat cards that stand on a tile and turn to face the viewer. |
 | `src/player.js` | Movement, held directions, facing and the walk cycle. |
 | `src/player-rig.js` | The player's body: head, torso, arms and legs. |
 | `src/enemy.js` | Patrolling enemies, their shapes, turn rules and timers. |
@@ -516,6 +600,11 @@ site and publishes `dist/` to GitHub Pages.
   | -     enemy patrolling vertically / horizontally
   ) (     enemy turning clockwise / counterclockwise when blocked
   ```
+
+  A character binds to a *name*, and names never run out — so a stage that wants
+  something the dialect has no character for says so in a `legend` of its own. That is
+  also where appearance goes: `wall:rock`, `floor:sand`, `wall:tree`, or a def written
+  out in full for a tile that wants both a look and a ground. See [Looks](#looks).
 
   Uppercase is the thing that blocks you, lowercase its unblocked partner. A
   switch swaps the two groups of its colour, so pair `X` with `x` to make one

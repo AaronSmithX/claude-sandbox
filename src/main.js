@@ -13,6 +13,8 @@ import { setupTouchControls, detectTouch } from './touch-controls.js';
 import { CameraFollow } from './camera-follow.js';
 import { tickWorld } from './world.js';
 import { createAudio, onFirstGesture } from './audio/index.js';
+import { configureTextures } from './textures.js';
+import { cameraYaw } from './billboards.js';
 
 const app = document.getElementById('app');
 if (!app) throw new Error('index.html is missing #app to render into');
@@ -24,6 +26,11 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
+
+// How sharp a texture may be seen edge-on is a property of the GPU, and this is the
+// only place that has one to ask. The floor is a flat plane under a camera fixed at a
+// shallow angle, which is exactly where leaving this out smears it a few tiles out.
+configureTextures({ anisotropy: renderer.capabilities.getMaxAnisotropy() });
 
 // --- Scene ------------------------------------------------------------------
 const scene = new THREE.Scene();
@@ -220,6 +227,11 @@ function loadStage(stage) {
   } else {
     player.setTilemap(loaded.tilemap);
   }
+
+  // This camera is aimed once and then frozen — see `src/camera-follow.js` — so a
+  // stage's flat cards are told which way it looks when they are built, and never
+  // again. The editor's preview orbits and has to say so every frame.
+  loaded.tilemap.setViewYaw(cameraYaw(camera));
 
   // Visiting, not owned: both are parented to the stage so that unloading it takes
   // them off the screen, and both are still here for the next one.

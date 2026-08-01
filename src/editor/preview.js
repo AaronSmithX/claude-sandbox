@@ -6,6 +6,8 @@ import { Inventory } from '../inventory.js';
 import { CameraFollow } from '../camera-follow.js';
 import { tickWorld } from '../world.js';
 import { TILE_SIZE } from '../tilemap.js';
+import { configureTextures } from '../textures.js';
+import { cameraYaw } from '../billboards.js';
 
 /**
  * The right-hand half of the editor: one stage on the screen, rebuilt as the text
@@ -41,6 +43,9 @@ export class Preview {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
+    // Same call as the game makes, for the same reason: this preview has its own
+    // renderer, and the texture module has no way to reach either of them itself.
+    configureTextures({ anisotropy: this.renderer.capabilities.getMaxAnisotropy() });
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b1020);
@@ -246,6 +251,9 @@ export class Preview {
 
     if (this.mode === PLAY) this.follow?.update(dt);
     else this.controls.update();
+    // Unlike the game's, this camera really does turn, so anything drawn as a flat
+    // card is told where it is looking every frame rather than once per stage.
+    this.loaded?.tilemap.setViewYaw(cameraYaw(this.camera));
     this.renderer.render(this.scene, this.camera);
   };
 
